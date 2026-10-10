@@ -1,7 +1,7 @@
 # Namma Rummy: store listing
 
 Text and answers to paste into Google Play Console and App Store Connect.
-`YOUR-SERVER` stands for the public address of the game server, for example `rummy.yourdomain.com`.
+The game server runs at `https://namma-rummy.onrender.com` (Render; see `render.yaml`).
 
 ## Identity
 
@@ -11,10 +11,10 @@ Text and answers to paste into Google Play Console and App Store Connect.
 | Package name (Android) / Bundle ID (iOS) | `com.roririsoft.nammarummy` |
 | Category | Games > Card |
 | Price | Free, no in-app purchases, no ads |
-| Website | `https://YOUR-SERVER/` |
-| Privacy policy | `https://YOUR-SERVER/privacy` |
-| Terms of use | `https://YOUR-SERVER/terms` |
-| Account deletion | `https://YOUR-SERVER/delete-account` |
+| Website | `https://namma-rummy.onrender.com/` |
+| Privacy policy | `https://namma-rummy.onrender.com/privacy` |
+| Terms of use | `https://namma-rummy.onrender.com/terms` |
+| Account deletion | `https://namma-rummy.onrender.com/delete-account` |
 
 The package name cannot be changed after the first upload. To use another one, change it in
 `godot/export_presets.cfg` (three places) before you upload anything.
@@ -74,12 +74,12 @@ Screenshots still have to be taken from the finished game:
 
 | Question | Answer |
 |---|---|
-| Privacy policy | `https://YOUR-SERVER/privacy` |
+| Privacy policy | `https://namma-rummy.onrender.com/privacy` |
 | Ads | No, the app contains no ads |
 | App access | Restricted: an account is needed. Give the reviewer a test account (see below) |
 | Target audience | 18 and over. Not a choice any more: players stake coins on the games, which the stores treat as simulated gambling |
 | News app, Health, Financial features, Government | No |
-| Data deletion: can users request account deletion? | Yes. URL: `https://YOUR-SERVER/delete-account` |
+| Data deletion: can users request account deletion? | Yes. URL: `https://namma-rummy.onrender.com/delete-account` |
 
 **Content rating questionnaire** (category: Game)
 
@@ -145,10 +145,11 @@ what the email and the phone number are each used for. Suggested note:
 
 ## Before the first upload
 
-- [ ] The backend is running on Render with **https** (`render.yaml`; see "Backend Deployment" in
-      the README) and the address is in `RELEASE_SERVER_URL`.
+- [x] The backend runs on Render with https at `https://namma-rummy.onrender.com`, and that address
+      is in `RELEASE_SERVER_URL` (free plans while testing: switch both to paid in `render.yaml` before
+      the release, and before the free database's 30th day).
 - [ ] `RELEASE_SERVER_URL` in `godot/autoload/config.gd` is that address.
-- [ ] `https://YOUR-SERVER/privacy`, `/terms` and `/delete-account` open in a browser and show
+- [ ] `https://namma-rummy.onrender.com/privacy`, `/terms` and `/delete-account` open in a browser and show
       your name and support email.
 - [ ] Two demo accounts exist on that server for the reviewers.
 - [ ] The store build was played on a real phone against that server.
