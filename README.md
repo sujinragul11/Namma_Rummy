@@ -463,7 +463,8 @@ PostgreSQL database, so Render creates both in one step.
 2. On render.com sign in with GitHub, choose **New > Blueprint**, pick the repository, and
    confirm. Render reads `render.yaml`, asks for `LEGAL_OWNER` and `SUPPORT_EMAIL` (they
    appear on the privacy policy), makes `JWT_SECRET` itself, and creates the web service
-   `namma-rummy` (Starter plan, Singapore) and the database `namma-rummy-db` (Basic-256mb).
+   `namma-rummy` and the database `namma-rummy-db` in Singapore, on the plans named in
+   `render.yaml` (free to try; Starter and Basic-256mb for the real game).
    The first build takes a few minutes; `node src/database/migrate.js` runs on every start,
    so the tables are created and kept up to date by themselves.
 3. Open `https://namma-rummy.onrender.com/health`, `/privacy`, `/terms` and

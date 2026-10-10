@@ -11,7 +11,9 @@ services:
     runtime: node
     rootDir: backend
     region: singapore          # the Render region nearest India
-    plan: starter              # "free" sleeps after 15 minutes, which ends games in progress
+    plan: free                 # to try it out. Free sleeps after 15 minutes without players and takes
+                               # about a minute to wake, which ends games in progress: before the
+                               # store release change this to "starter" (and the database below)
     buildCommand: npm ci --omit=dev
     startCommand: node src/database/migrate.js && node src/server.js
     healthCheckPath: /health
@@ -37,5 +39,6 @@ services:
 databases:
   - name: namma-rummy-db
     region: singapore
-    plan: basic-256mb          # "free" is deleted after 30 days; keep that for a trial only
+    plan: free                 # to try it out: Render DELETES a free database after 30 days, with
+                               # every account in it. Change to "basic-256mb" before day 30
     postgresMajorVersion: "17"
