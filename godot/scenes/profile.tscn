@@ -1,0 +1,172 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/profile.gd" id="1_profile"]
+
+[node name="ProfilePanel" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_profile")
+
+[node name="Shade" type="ColorRect" parent="."]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 150
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 150
+theme_override_constants/margin_bottom = 16
+
+[node name="Panel" type="PanelContainer" parent="Margin"]
+unique_name_in_owner = true
+size_flags_vertical = 0
+
+[node name="Box" type="VBoxContainer" parent="Margin/Panel"]
+theme_override_constants/separation = 14
+
+[node name="Header" type="HBoxContainer" parent="Margin/Panel/Box"]
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Panel/Box/Header"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 32
+text = "Profile"
+
+[node name="CloseButton" type="Button" parent="Margin/Panel/Box/Header"]
+unique_name_in_owner = true
+text = "Close"
+
+[node name="EditRow" type="HBoxContainer" parent="Margin/Panel/Box"]
+theme_override_constants/separation = 12
+
+[node name="ProfileNameEdit" type="LineEdit" parent="Margin/Panel/Box/EditRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 0.8
+placeholder_text = "Username"
+max_length = 20
+
+[node name="ProfileEmailEdit" type="LineEdit" parent="Margin/Panel/Box/EditRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+placeholder_text = "Email"
+max_length = 100
+virtual_keyboard_type = 5
+
+[node name="SaveProfileButton" type="Button" parent="Margin/Panel/Box/EditRow"]
+unique_name_in_owner = true
+disabled = true
+text = "Save"
+
+[node name="BadgeHolder" type="HBoxContainer" parent="Margin/Panel/Box"]
+unique_name_in_owner = true
+
+[node name="StatsRow" type="HBoxContainer" parent="Margin/Panel/Box"]
+unique_name_in_owner = true
+theme_override_constants/separation = 12
+
+[node name="Played" type="PanelContainer" parent="Margin/Panel/Box/StatsRow"]
+size_flags_horizontal = 3
+
+[node name="Box" type="VBoxContainer" parent="Margin/Panel/Box/StatsRow/Played"]
+theme_override_constants/separation = 0
+
+[node name="PlayedValue" type="Label" parent="Margin/Panel/Box/StatsRow/Played/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.792157, 0.156863, 1)
+theme_override_font_sizes/font_size = 38
+text = "-"
+horizontal_alignment = 1
+
+[node name="Caption" type="Label" parent="Margin/Panel/Box/StatsRow/Played/Box"]
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Games played"
+horizontal_alignment = 1
+
+[node name="Won" type="PanelContainer" parent="Margin/Panel/Box/StatsRow"]
+size_flags_horizontal = 3
+
+[node name="Box" type="VBoxContainer" parent="Margin/Panel/Box/StatsRow/Won"]
+theme_override_constants/separation = 0
+
+[node name="WonValue" type="Label" parent="Margin/Panel/Box/StatsRow/Won/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.792157, 0.156863, 1)
+theme_override_font_sizes/font_size = 38
+text = "-"
+horizontal_alignment = 1
+
+[node name="Caption" type="Label" parent="Margin/Panel/Box/StatsRow/Won/Box"]
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Games won"
+horizontal_alignment = 1
+
+[node name="Rate" type="PanelContainer" parent="Margin/Panel/Box/StatsRow"]
+size_flags_horizontal = 3
+
+[node name="Box" type="VBoxContainer" parent="Margin/Panel/Box/StatsRow/Rate"]
+theme_override_constants/separation = 0
+
+[node name="RateValue" type="Label" parent="Margin/Panel/Box/StatsRow/Rate/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.792157, 0.156863, 1)
+theme_override_font_sizes/font_size = 38
+text = "-"
+horizontal_alignment = 1
+
+[node name="Caption" type="Label" parent="Margin/Panel/Box/StatsRow/Rate/Box"]
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Win rate"
+horizontal_alignment = 1
+
+[node name="Coins" type="PanelContainer" parent="Margin/Panel/Box/StatsRow"]
+size_flags_horizontal = 3
+
+[node name="Box" type="VBoxContainer" parent="Margin/Panel/Box/StatsRow/Coins"]
+theme_override_constants/separation = 0
+
+[node name="CoinsValue" type="Label" parent="Margin/Panel/Box/StatsRow/Coins/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.792157, 0.156863, 1)
+theme_override_font_sizes/font_size = 38
+text = "-"
+horizontal_alignment = 1
+
+[node name="Caption" type="Label" parent="Margin/Panel/Box/StatsRow/Coins/Box"]
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Coins"
+horizontal_alignment = 1
+
+[node name="AccountRow" type="HBoxContainer" parent="Margin/Panel/Box"]
+alignment = 1
+theme_override_constants/separation = 24
+
+[node name="DeleteAccountButton" type="Button" parent="Margin/Panel/Box/AccountRow"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.63, 0.63, 1)
+theme_override_font_sizes/font_size = 20
+text = "Delete account"
+flat = true
+
+[node name="FounderLabel" type="Label" parent="Margin/Panel/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 0.7)
+theme_override_font_sizes/font_size = 15
+text = "Founder : Sujin Ragul"
+horizontal_alignment = 1

@@ -1,0 +1,51 @@
+# The whole server on one machine: the game server, PostgreSQL and Redis.
+#   docker compose --env-file .env up -d --build
+# Needs JWT_SECRET, LEGAL_OWNER, SUPPORT_EMAIL and DB_PASSWORD in .env (see .env.example).
+# Put a reverse proxy with HTTPS in front of port 3001: the apps only talk to https://.
+
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      APP_NAME: ${APP_NAME:-Namma Rummy}
+      LEGAL_OWNER: ${LEGAL_OWNER:?set LEGAL_OWNER in .env}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:?set SUPPORT_EMAIL in .env}
+      DATABASE_URL: postgres://rummy:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/rummy
+      REDIS_URL: redis://redis:6379
+      TRUST_PROXY: 1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rummy
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: rummy
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rummy -d rummy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+volumes:
+  db-data:
+  redis-data:

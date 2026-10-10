@@ -1,0 +1,70 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/friends.gd" id="1_friends"]
+
+[node name="FriendsPanel" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_friends")
+
+[node name="Shade" type="ColorRect" parent="."]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 150
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 150
+theme_override_constants/margin_bottom = 16
+
+[node name="Panel" type="PanelContainer" parent="Margin"]
+unique_name_in_owner = true
+
+[node name="Box" type="VBoxContainer" parent="Margin/Panel"]
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="Margin/Panel/Box"]
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Margin/Panel/Box/Header"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 32
+text = "Friends"
+
+[node name="CloseButton" type="Button" parent="Margin/Panel/Box/Header"]
+unique_name_in_owner = true
+text = "Close"
+
+[node name="AddRow" type="HBoxContainer" parent="Margin/Panel/Box"]
+theme_override_constants/separation = 12
+
+[node name="NameEdit" type="LineEdit" parent="Margin/Panel/Box/AddRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+placeholder_text = "Friend's username"
+max_length = 50
+
+[node name="AddButton" type="Button" parent="Margin/Panel/Box/AddRow"]
+unique_name_in_owner = true
+text = "Add friend"
+
+[node name="Scroll" type="ScrollContainer" parent="Margin/Panel/Box"]
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Rows" type="VBoxContainer" parent="Margin/Panel/Box/Scroll"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_constants/separation = 10

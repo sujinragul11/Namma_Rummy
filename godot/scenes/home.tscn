@@ -1,0 +1,571 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/home.gd" id="1_home"]
+[ext_resource type="Texture2D" path="res://assets/logo.png" id="2_logo"]
+[ext_resource type="Script" path="res://scenes/sound_switches.gd" id="3_sound"]
+[ext_resource type="Script" path="res://scenes/game_tile.gd" id="4_tile"]
+[ext_resource type="Script" path="res://scenes/menu_overlay.gd" id="5_overlay"]
+
+[node name="Home" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_home")
+
+[node name="Margin" type="MarginContainer" parent="."]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 48
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 48
+theme_override_constants/margin_bottom = 90
+
+[node name="Row" type="HBoxContainer" parent="Margin"]
+theme_override_constants/separation = 40
+
+[node name="Brand" type="VBoxContainer" parent="Margin/Row"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+alignment = 1
+theme_override_constants/separation = 14
+
+[node name="Logo" type="TextureRect" parent="Margin/Row/Brand"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 110)
+texture = ExtResource("2_logo")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Tagline" type="Label" parent="Margin/Row/Brand"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 24
+text = "Play classic rummy with friends online"
+horizontal_alignment = 1
+
+[node name="Side" type="ScrollContainer" parent="Margin/Row"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(600, 0)
+horizontal_scroll_mode = 0
+
+[node name="SideBox" type="VBoxContainer" parent="Margin/Row/Side"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+alignment = 1
+
+[node name="AuthPanel" type="PanelContainer" parent="Margin/Row/Side/SideBox"]
+unique_name_in_owner = true
+
+[node name="Form" type="VBoxContainer" parent="Margin/Row/Side/SideBox/AuthPanel"]
+theme_override_constants/separation = 12
+
+[node name="AuthTitle" type="Label" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 30
+text = "Login"
+
+[node name="UsernameEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+placeholder_text = "Username"
+max_length = 20
+
+[node name="EmailEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+placeholder_text = "Email"
+virtual_keyboard_type = 5
+
+[node name="PhoneEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+placeholder_text = "Mobile number (10 digits)"
+max_length = 20
+virtual_keyboard_type = 4
+
+[node name="IdentifierEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+placeholder_text = "Email, phone or username"
+
+[node name="PasswordEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+placeholder_text = "Password"
+virtual_keyboard_type = 6
+secret = true
+
+[node name="SubmitButton" type="Button" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+text = "Login"
+
+[node name="SwitchButton" type="Button" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 22
+text = "Don't have an account? Register"
+flat = true
+
+[node name="ServerRow" type="HBoxContainer" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+theme_override_constants/separation = 10
+
+[node name="ServerLabel" type="Label" parent="Margin/Row/Side/SideBox/AuthPanel/Form/ServerRow"]
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 18
+text = "Server"
+
+[node name="ServerEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form/ServerRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 18
+placeholder_text = "http://127.0.0.1:3001"
+virtual_keyboard_type = 7
+
+[node name="MenuPanel" type="MarginContainer" parent="."]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 36
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 36
+theme_override_constants/margin_bottom = 88
+
+[node name="Column" type="VBoxContainer" parent="MenuPanel"]
+theme_override_constants/separation = 8
+
+[node name="TopBar" type="HBoxContainer" parent="MenuPanel/Column"]
+theme_override_constants/separation = 14
+
+[node name="AvatarPill" type="PanelContainer" parent="MenuPanel/Column/TopBar"]
+unique_name_in_owner = true
+
+[node name="AvatarRow" type="HBoxContainer" parent="MenuPanel/Column/TopBar/AvatarPill"]
+theme_override_constants/separation = 12
+
+[node name="Avatar" type="Control" parent="MenuPanel/Column/TopBar/AvatarPill/AvatarRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(60, 60)
+mouse_filter = 2
+
+[node name="NameLines" type="VBoxContainer" parent="MenuPanel/Column/TopBar/AvatarPill/AvatarRow"]
+size_flags_vertical = 4
+theme_override_constants/separation = -2
+
+[node name="WelcomeLabel" type="Label" parent="MenuPanel/Column/TopBar/AvatarPill/AvatarRow/NameLines"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 0)
+theme_override_font_sizes/font_size = 26
+text = "Player"
+text_overrun_behavior = 3
+
+[node name="StatusLabel" type="Label" parent="MenuPanel/Column/TopBar/AvatarPill/AvatarRow/NameLines"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 18
+text = "Connecting..."
+
+[node name="CoinPill" type="PanelContainer" parent="MenuPanel/Column/TopBar"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+
+[node name="TopSpacer" type="Control" parent="MenuPanel/Column/TopBar"]
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="HelpButton" type="Button" parent="MenuPanel/Column/TopBar"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+tooltip_text = "How to play"
+
+[node name="TopSound" type="HBoxContainer" parent="MenuPanel/Column/TopBar"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+script = ExtResource("3_sound")
+
+[node name="AccountButton" type="Button" parent="MenuPanel/Column/TopBar"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+tooltip_text = "Profile"
+
+[node name="Tiles" type="CenterContainer" parent="MenuPanel/Column"]
+size_flags_vertical = 3
+
+[node name="TileRow" type="HBoxContainer" parent="MenuPanel/Column/Tiles"]
+theme_override_constants/separation = 16
+
+[node name="PointsTile" type="Button" parent="MenuPanel/Column/Tiles/TileRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(290, 470)
+script = ExtResource("4_tile")
+kind = "points"
+title = "POINTS
+RUMMY"
+color = Color(0.898039, 0.223529, 0.207843, 1)
+
+[node name="RightColumn" type="VBoxContainer" parent="MenuPanel/Column/Tiles/TileRow"]
+theme_override_constants/separation = 12
+
+[node name="SmallTiles" type="HBoxContainer" parent="MenuPanel/Column/Tiles/TileRow/RightColumn"]
+theme_override_constants/separation = 12
+
+[node name="PoolTile" type="Button" parent="MenuPanel/Column/Tiles/TileRow/RightColumn/SmallTiles"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(294, 300)
+script = ExtResource("4_tile")
+kind = "pool"
+title = "POOL
+RUMMY"
+color = Color(0.964706, 0.65098, 0.227451, 1)
+
+[node name="CloseJokerTile" type="Button" parent="MenuPanel/Column/Tiles/TileRow/RightColumn/SmallTiles"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(294, 300)
+script = ExtResource("4_tile")
+kind = "closed"
+title = "CLOSE
+JOKER"
+color = Color(0.160784, 0.713726, 0.847059, 1)
+
+[node name="FriendsTile" type="Button" parent="MenuPanel/Column/Tiles/TileRow/RightColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(600, 158)
+script = ExtResource("4_tile")
+kind = "friends"
+title = "PLAY WITH
+FRIENDS"
+color = Color(0.709804, 0.356863, 0.878431, 1)
+wide = true
+
+[node name="BottomBar" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -76.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="LinksRow" type="HBoxContainer" parent="BottomBar"]
+alignment = 1
+theme_override_constants/separation = 18
+
+[node name="FriendsButton" type="Button" parent="BottomBar/LinksRow"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 22
+text = "Friends"
+flat = true
+
+[node name="ProfileButton" type="Button" parent="BottomBar/LinksRow"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 22
+text = "Profile"
+flat = true
+
+[node name="PrivacyButton" type="Button" parent="BottomBar/LinksRow"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Privacy policy"
+flat = true
+
+[node name="TermsButton" type="Button" parent="BottomBar/LinksRow"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Terms of use"
+flat = true
+
+[node name="LogoutButton" type="Button" parent="BottomBar/LinksRow"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 22
+text = "Logout"
+flat = true
+
+[node name="SoundSwitches" type="HBoxContainer" parent="BottomBar/LinksRow"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+script = ExtResource("3_sound")
+
+[node name="SetupOverlay" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("5_overlay")
+
+[node name="Shade" type="ColorRect" parent="SetupOverlay"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="Box" type="PanelContainer" parent="SetupOverlay"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -400.0
+offset_top = 22.0
+offset_right = 400.0
+grow_horizontal = 2
+
+[node name="SetupBox" type="VBoxContainer" parent="SetupOverlay/Box"]
+theme_override_constants/separation = 8
+
+[node name="SetupHeader" type="HBoxContainer" parent="SetupOverlay/Box/SetupBox"]
+theme_override_constants/separation = 0
+
+[node name="LeftSpacer" type="Control" parent="SetupOverlay/Box/SetupBox/SetupHeader"]
+custom_minimum_size = Vector2(56, 0)
+size_flags_horizontal = 3
+
+[node name="SetupTitle" type="Label" parent="SetupOverlay/Box/SetupBox/SetupHeader"]
+unique_name_in_owner = true
+text = "Points Rummy"
+
+[node name="RightSpacer" type="Control" parent="SetupOverlay/Box/SetupBox/SetupHeader"]
+size_flags_horizontal = 3
+
+[node name="SetupCloseButton" type="Button" parent="SetupOverlay/Box/SetupBox/SetupHeader"]
+unique_name_in_owner = true
+
+[node name="Choices" type="VBoxContainer" parent="SetupOverlay/Box/SetupBox"]
+unique_name_in_owner = true
+theme_override_constants/separation = 10
+
+[node name="PlayersColumn" type="VBoxContainer" parent="SetupOverlay/Box/SetupBox/Choices"]
+theme_override_constants/separation = 6
+
+[node name="PlayersLabel" type="Label" parent="SetupOverlay/Box/SetupBox/Choices/PlayersColumn"]
+theme_override_colors/font_color = Color(0.364706, 0.25098, 0.215686, 1)
+theme_override_font_sizes/font_size = 20
+text = "SELECT PLAYERS"
+horizontal_alignment = 1
+
+[node name="PlayersChips" type="HBoxContainer" parent="SetupOverlay/Box/SetupBox/Choices/PlayersColumn"]
+unique_name_in_owner = true
+alignment = 1
+theme_override_constants/separation = 8
+
+[node name="Divider" type="ColorRect" parent="SetupOverlay/Box/SetupBox/Choices"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(320, 2)
+size_flags_horizontal = 4
+color = Color(0.937255, 0.6, 0.235294, 0.6)
+
+[node name="PoolColumn" type="VBoxContainer" parent="SetupOverlay/Box/SetupBox/Choices"]
+unique_name_in_owner = true
+theme_override_constants/separation = 6
+
+[node name="PoolLabel" type="Label" parent="SetupOverlay/Box/SetupBox/Choices/PoolColumn"]
+theme_override_colors/font_color = Color(0.364706, 0.25098, 0.215686, 1)
+theme_override_font_sizes/font_size = 20
+text = "SELECT POOL"
+horizontal_alignment = 1
+
+[node name="PoolChips" type="HBoxContainer" parent="SetupOverlay/Box/SetupBox/Choices/PoolColumn"]
+unique_name_in_owner = true
+alignment = 1
+theme_override_constants/separation = 40
+
+[node name="StakeLabel" type="Label" parent="SetupOverlay/Box/SetupBox"]
+theme_override_colors/font_color = Color(0.364706, 0.25098, 0.215686, 1)
+theme_override_font_sizes/font_size = 18
+text = "SELECT ENTRY AMOUNT"
+horizontal_alignment = 1
+
+[node name="StakePill" type="PanelContainer" parent="SetupOverlay/Box/SetupBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(250, 0)
+size_flags_horizontal = 4
+
+[node name="StakePillRow" type="HBoxContainer" parent="SetupOverlay/Box/SetupBox/StakePill"]
+alignment = 1
+
+[node name="FreeLabel" type="Label" parent="SetupOverlay/Box/SetupBox/StakePill/StakePillRow"]
+unique_name_in_owner = true
+visible = false
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 30
+text = "FREE TABLE"
+
+[node name="StakeSlider" type="HSlider" parent="SetupOverlay/Box/SetupBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 56)
+size_flags_vertical = 4
+max_value = 6.0
+rounded = true
+scrollable = false
+tick_count = 7
+ticks_on_borders = true
+
+[node name="StakeHint" type="Label" parent="SetupOverlay/Box/SetupBox"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.552941, 0.431373, 0.388235, 1)
+theme_override_font_sizes/font_size = 16
+text = "Every player pays the entry on sitting down; the winner takes it all."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Hidden" type="Control" parent="SetupOverlay/Box/SetupBox"]
+visible = false
+
+[node name="TypeOption" type="OptionButton" parent="SetupOverlay/Box/SetupBox/Hidden"]
+unique_name_in_owner = true
+
+[node name="PlayersOption" type="OptionButton" parent="SetupOverlay/Box/SetupBox/Hidden"]
+unique_name_in_owner = true
+
+[node name="StakeOption" type="OptionButton" parent="SetupOverlay/Box/SetupBox/Hidden"]
+unique_name_in_owner = true
+
+[node name="CreateButton" type="Button" parent="SetupOverlay/Box/SetupBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(290, 66)
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 28
+text = "Play Now"
+
+[node name="JoinOverlay" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("5_overlay")
+
+[node name="Shade" type="ColorRect" parent="JoinOverlay"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="Box" type="PanelContainer" parent="JoinOverlay"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -380.0
+offset_top = 60.0
+offset_right = 380.0
+grow_horizontal = 2
+
+[node name="JoinBox" type="VBoxContainer" parent="JoinOverlay/Box"]
+theme_override_constants/separation = 16
+
+[node name="JoinHeader" type="HBoxContainer" parent="JoinOverlay/Box/JoinBox"]
+theme_override_constants/separation = 0
+
+[node name="LeftSpacer" type="Control" parent="JoinOverlay/Box/JoinBox/JoinHeader"]
+custom_minimum_size = Vector2(56, 0)
+size_flags_horizontal = 3
+
+[node name="JoinTitle" type="Label" parent="JoinOverlay/Box/JoinBox/JoinHeader"]
+unique_name_in_owner = true
+text = "Private Table"
+
+[node name="RightSpacer" type="Control" parent="JoinOverlay/Box/JoinBox/JoinHeader"]
+size_flags_horizontal = 3
+
+[node name="JoinCloseButton" type="Button" parent="JoinOverlay/Box/JoinBox/JoinHeader"]
+unique_name_in_owner = true
+
+[node name="JoinHint" type="Label" parent="JoinOverlay/Box/JoinBox"]
+theme_override_colors/font_color = Color(0.552941, 0.431373, 0.388235, 1)
+theme_override_font_sizes/font_size = 24
+text = "Create a private table now, or, if a friend has sent you a room code, enter it and join their table."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="JoinRow" type="HBoxContainer" parent="JoinOverlay/Box/JoinBox"]
+unique_name_in_owner = true
+alignment = 1
+theme_override_constants/separation = 12
+
+[node name="CodeEdit" type="LineEdit" parent="JoinOverlay/Box/JoinBox/JoinRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(300, 0)
+theme_override_font_sizes/font_size = 30
+placeholder_text = "Room code"
+alignment = 1
+max_length = 6
+
+[node name="TableButtons" type="HBoxContainer" parent="JoinOverlay/Box/JoinBox"]
+alignment = 1
+theme_override_constants/separation = 28
+
+[node name="CreateTableButton" type="Button" parent="JoinOverlay/Box/JoinBox/TableButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(250, 62)
+text = "CREATE TABLE"
+
+[node name="JoinButton" type="Button" parent="JoinOverlay/Box/JoinBox/TableButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(250, 62)
+text = "JOIN TABLE"
+
+[node name="InviteFriendsButton" type="Button" parent="JoinOverlay/Box/JoinBox"]
+unique_name_in_owner = true
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.0862745, 0.627451, 0.521569, 1)
+theme_override_colors/font_hover_color = Color(0.0862745, 0.627451, 0.521569, 1)
+theme_override_colors/font_pressed_color = Color(0.0862745, 0.627451, 0.521569, 1)
+theme_override_font_sizes/font_size = 22
+text = "Invite the friends who are online"
+flat = true
+
+[node name="RulesOverlay" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("5_overlay")
+
+[node name="Shade" type="ColorRect" parent="RulesOverlay"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.72)
+
+[node name="Box" type="PanelContainer" parent="RulesOverlay"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -420.0
+offset_top = 24.0
+offset_right = 420.0
+grow_horizontal = 2
+
+[node name="RulesBox" type="VBoxContainer" parent="RulesOverlay/Box"]
+theme_override_constants/separation = 12
+
+[node name="RulesHeader" type="HBoxContainer" parent="RulesOverlay/Box/RulesBox"]
+theme_override_constants/separation = 0
+
+[node name="LeftSpacer" type="Control" parent="RulesOverlay/Box/RulesBox/RulesHeader"]
+custom_minimum_size = Vector2(56, 0)
+size_flags_horizontal = 3
+
+[node name="RulesTitle" type="Label" parent="RulesOverlay/Box/RulesBox/RulesHeader"]
+unique_name_in_owner = true
+text = "How to play"
+
+[node name="RightSpacer" type="Control" parent="RulesOverlay/Box/RulesBox/RulesHeader"]
+size_flags_horizontal = 3
+
+[node name="RulesCloseButton" type="Button" parent="RulesOverlay/Box/RulesBox/RulesHeader"]
+unique_name_in_owner = true
+
+[node name="RulesScroll" type="ScrollContainer" parent="RulesOverlay/Box/RulesBox"]
+custom_minimum_size = Vector2(0, 520)
+horizontal_scroll_mode = 0
+
+[node name="RulesText" type="Label" parent="RulesOverlay/Box/RulesBox/RulesScroll"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.364706, 0.25098, 0.215686, 1)
+theme_override_font_sizes/font_size = 21
+autowrap_mode = 3

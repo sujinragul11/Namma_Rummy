@@ -1,0 +1,5 @@
+# Godot's import cache and editor state (rebuilt automatically)
+.godot/
+
+# Android build template, if installed later
+/android/

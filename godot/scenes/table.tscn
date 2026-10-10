@@ -1,0 +1,322 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/table.gd" id="1_table"]
+[ext_resource type="Script" path="res://scenes/card.gd" id="2_card"]
+[ext_resource type="Script" path="res://scenes/player_badge.gd" id="3_badge"]
+[ext_resource type="Script" path="res://scenes/sound_switches.gd" id="4_sound"]
+[ext_resource type="Script" path="res://scenes/table_cloth.gd" id="5_cloth"]
+
+[sub_resource type="StyleBoxEmpty" id="none"]
+
+[sub_resource type="StyleBoxFlat" id="result"]
+content_margin_left = 30.0
+content_margin_top = 24.0
+content_margin_right = 30.0
+content_margin_bottom = 24.0
+bg_color = Color(1, 1, 1, 1)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(1, 0.792157, 0.156863, 1)
+corner_radius_top_left = 20
+corner_radius_top_right = 20
+corner_radius_bottom_right = 20
+corner_radius_bottom_left = 20
+shadow_color = Color(0, 0, 0, 0.4)
+shadow_size = 16
+anti_aliasing = true
+
+[node name="Table" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_table")
+
+[node name="Cloth" type="Control" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_cloth")
+
+[node name="Layout" type="VBoxContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 0
+
+[node name="TopBar" type="MarginContainer" parent="Layout"]
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 0
+
+[node name="Row" type="HBoxContainer" parent="Layout/TopBar"]
+theme_override_constants/separation = 12
+
+[node name="LeaveButton" type="Button" parent="Layout/TopBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 0
+tooltip_text = "Leave the table"
+
+[node name="SoundSwitches" type="HBoxContainer" parent="Layout/TopBar/Row"]
+size_flags_vertical = 0
+script = ExtResource("4_sound")
+
+[node name="InfoPills" type="VBoxContainer" parent="Layout/TopBar/Row"]
+size_flags_vertical = 0
+theme_override_constants/separation = 6
+
+[node name="RoomLabel" type="Label" parent="Layout/TopBar/Row/InfoPills"]
+unique_name_in_owner = true
+size_flags_horizontal = 0
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 18
+text = "ROOM"
+
+[node name="TotalLabel" type="Label" parent="Layout/TopBar/Row/InfoPills"]
+unique_name_in_owner = true
+size_flags_horizontal = 0
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="Arena" type="VBoxContainer" parent="Layout"]
+size_flags_vertical = 3
+alignment = 1
+theme_override_constants/separation = 10
+
+[node name="PilesCenter" type="CenterContainer" parent="Layout/Arena"]
+
+[node name="PilesBox" type="Control" parent="Layout/Arena/PilesCenter"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(480, 222)
+
+[node name="DeclareSlot" type="PanelContainer" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_top = 36.0
+offset_right = 124.0
+offset_bottom = 182.0
+
+[node name="SlotLines" type="VBoxContainer" parent="Layout/Arena/PilesCenter/PilesBox/DeclareSlot"]
+alignment = 1
+theme_override_constants/separation = 0
+
+[node name="DeclareWord" type="Label" parent="Layout/Arena/PilesCenter/PilesBox/DeclareSlot/SlotLines"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.670588, 0.568627, 1)
+theme_override_font_sizes/font_size = 20
+text = "DECLARE"
+horizontal_alignment = 1
+
+[node name="HereWord" type="Label" parent="Layout/Arena/PilesCenter/PilesBox/DeclareSlot/SlotLines"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 24
+text = "Here"
+horizontal_alignment = 1
+
+[node name="JokerCard" type="Control" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_left = 152.0
+offset_top = 46.0
+offset_right = 256.0
+offset_bottom = 192.0
+script = ExtResource("2_card")
+
+[node name="DeckBack2" type="Control" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_left = 224.0
+offset_top = 30.0
+offset_right = 328.0
+offset_bottom = 176.0
+script = ExtResource("2_card")
+
+[node name="DeckBack1" type="Control" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_left = 218.0
+offset_top = 26.0
+offset_right = 322.0
+offset_bottom = 172.0
+script = ExtResource("2_card")
+
+[node name="DeckCard" type="Control" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_left = 212.0
+offset_top = 22.0
+offset_right = 316.0
+offset_bottom = 168.0
+script = ExtResource("2_card")
+
+[node name="DeckLabel" type="Label" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_left = 286.0
+offset_top = 12.0
+offset_right = 340.0
+offset_bottom = 36.0
+theme_override_font_sizes/font_size = 16
+text = "24"
+horizontal_alignment = 1
+
+[node name="OpenCard" type="Control" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_left = 376.0
+offset_top = 22.0
+offset_right = 480.0
+offset_bottom = 168.0
+script = ExtResource("2_card")
+
+[node name="JokerLabel" type="Label" parent="Layout/Arena/PilesCenter/PilesBox"]
+unique_name_in_owner = true
+offset_left = 120.0
+offset_top = 196.0
+offset_right = 350.0
+offset_bottom = 220.0
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 17
+text = "Joker"
+horizontal_alignment = 1
+
+[node name="StatusBox" type="HBoxContainer" parent="Layout/Arena"]
+alignment = 1
+theme_override_constants/separation = 16
+
+[node name="StatusLabel" type="Label" parent="Layout/Arena/StatusBox"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 28
+horizontal_alignment = 1
+
+[node name="ClockLabel" type="Label" parent="Layout/Arena/StatusBox"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 32
+
+[node name="HandPanel" type="PanelContainer" parent="Layout"]
+theme_override_styles/panel = SubResource("none")
+
+[node name="HandArea" type="Control" parent="Layout/HandPanel"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 240)
+
+[node name="ActionBar" type="MarginContainer" parent="Layout"]
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 10
+
+[node name="Row" type="HBoxContainer" parent="Layout/ActionBar"]
+theme_override_constants/separation = 12
+
+[node name="MyBadge" type="HBoxContainer" parent="Layout/ActionBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+script = ExtResource("3_badge")
+
+[node name="MyCoinsPill" type="PanelContainer" parent="Layout/ActionBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+
+[node name="Spacer" type="Control" parent="Layout/ActionBar/Row"]
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="SortButton" type="Button" parent="Layout/ActionBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+text = "Sort"
+
+[node name="GroupButton" type="Button" parent="Layout/ActionBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+text = "Group"
+
+[node name="DiscardButton" type="Button" parent="Layout/ActionBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+text = "Discard"
+
+[node name="DeclareButton" type="Button" parent="Layout/ActionBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+text = "Declare"
+
+[node name="DropButton" type="Button" parent="Layout/ActionBar/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+text = "Drop"
+
+[node name="Opponents" type="Control" parent="."]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="FlyLayer" type="Control" parent="."]
+unique_name_in_owner = true
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ResultOverlay" type="ColorRect" parent="."]
+unique_name_in_owner = true
+visible = false
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.62)
+
+[node name="Center" type="CenterContainer" parent="ResultOverlay"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResultPanel" type="PanelContainer" parent="ResultOverlay/Center"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(900, 0)
+theme_override_styles/panel = SubResource("result")
+
+[node name="Column" type="VBoxContainer" parent="ResultOverlay/Center/ResultPanel"]
+theme_override_constants/separation = 14
+
+[node name="ResultTitle" type="Label" parent="ResultOverlay/Center/ResultPanel/Column"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
+theme_override_font_sizes/font_size = 38
+text = "Result"
+
+[node name="ResultScroll" type="ScrollContainer" parent="ResultOverlay/Center/ResultPanel/Column"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 200)
+horizontal_scroll_mode = 0
+
+[node name="ResultRows" type="VBoxContainer" parent="ResultOverlay/Center/ResultPanel/Column/ResultScroll"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Footer" type="HBoxContainer" parent="ResultOverlay/Center/ResultPanel/Column"]
+theme_override_constants/separation = 12
+
+[node name="NextRoundLabel" type="Label" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
+
+[node name="LeaveGameButton" type="Button" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
+unique_name_in_owner = true
+text = "Leave game"
+
+[node name="PlayAgainButton" type="Button" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
+unique_name_in_owner = true
+text = "Play again"
+
+[node name="BackButton" type="Button" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
+unique_name_in_owner = true
+text = "Back to home"

@@ -1,0 +1,24 @@
+# Installed packages: npm ci brings them back
+node_modules/
+
+# Secrets and local settings. .env.example is the template and stays in.
+.env
+.env.*
+!.env.example
+
+# Built apps, the Android build template and Godot's import cache
+build/
+godot/.godot/
+godot/android/
+
+# The old Expo app keeps its own history in mobile/.git-old, which is not part of this repository
+.git-old/
+.expo/
+
+# A lock file left at the root by an npm command run in the wrong folder
+/package-lock.json
+
+# Stray archives and editor files
+*.zip
+.DS_Store
+Thumbs.db

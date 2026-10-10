@@ -1,0 +1,109 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scenes/lobby.gd" id="1_lobby"]
+
+[node name="Lobby" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_lobby")
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 48
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 48
+theme_override_constants/margin_bottom = 24
+
+[node name="Row" type="HBoxContainer" parent="Margin"]
+theme_override_constants/separation = 32
+
+[node name="Left" type="VBoxContainer" parent="Margin/Row"]
+size_flags_horizontal = 3
+alignment = 1
+theme_override_constants/separation = 18
+
+[node name="Title" type="Label" parent="Margin/Row/Left"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 40
+text = "Game Lobby"
+
+[node name="CodePanel" type="PanelContainer" parent="Margin/Row/Left"]
+unique_name_in_owner = true
+
+[node name="Row" type="HBoxContainer" parent="Margin/Row/Left/CodePanel"]
+theme_override_constants/separation = 16
+
+[node name="Texts" type="VBoxContainer" parent="Margin/Row/Left/CodePanel/Row"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="CodeTitle" type="Label" parent="Margin/Row/Left/CodePanel/Row/Texts"]
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 18
+text = "ROOM CODE"
+
+[node name="CodeLabel" type="Label" parent="Margin/Row/Left/CodePanel/Row/Texts"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(1, 0.792157, 0.156863, 1)
+theme_override_font_sizes/font_size = 60
+text = "------"
+
+[node name="CopyButton" type="Button" parent="Margin/Row/Left/CodePanel/Row"]
+unique_name_in_owner = true
+size_flags_vertical = 4
+text = "Copy"
+
+[node name="InviteRow" type="HBoxContainer" parent="Margin/Row/Left"]
+theme_override_constants/separation = 12
+
+[node name="InviteButton" type="Button" parent="Margin/Row/Left/InviteRow"]
+unique_name_in_owner = true
+text = "Invite friends"
+
+[node name="WhatsAppButton" type="Button" parent="Margin/Row/Left/InviteRow"]
+unique_name_in_owner = true
+text = "Share on WhatsApp"
+
+[node name="InfoLabel" type="Label" parent="Margin/Row/Left"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Points rummy"
+autowrap_mode = 3
+
+[node name="LeaveButton" type="Button" parent="Margin/Row/Left"]
+unique_name_in_owner = true
+size_flags_horizontal = 0
+text = "Leave lobby"
+
+[node name="PlayersPanel" type="PanelContainer" parent="Margin/Row"]
+size_flags_horizontal = 3
+size_flags_vertical = 4
+
+[node name="Box" type="VBoxContainer" parent="Margin/Row/PlayersPanel"]
+theme_override_constants/separation = 12
+
+[node name="PlayersTitle" type="Label" parent="Margin/Row/PlayersPanel/Box"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 28
+text = "Players"
+
+[node name="PlayersList" type="VBoxContainer" parent="Margin/Row/PlayersPanel/Box"]
+unique_name_in_owner = true
+theme_override_constants/separation = 10
+
+[node name="WaitingLabel" type="Label" parent="Margin/Row/PlayersPanel/Box"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+text = "Waiting for players to join..."
+autowrap_mode = 3
+
+[node name="StartButton" type="Button" parent="Margin/Row/PlayersPanel/Box"]
+unique_name_in_owner = true
+text = "Start"

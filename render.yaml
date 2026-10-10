@@ -1,0 +1,41 @@
+# Render Blueprint: the game server and its database on render.com.
+# In the Render dashboard choose New > Blueprint, pick this repository, and Render creates
+# both from this file. Render asks for the two values marked "sync: false".
+#
+# What is NOT here: Redis (games in progress are kept in the database, so none is needed)
+# and a custom domain (the service gets https://<name>.onrender.com by itself; a domain
+# of your own can be added later under the service's Settings > Custom Domains).
+services:
+  - type: web
+    name: namma-rummy
+    runtime: node
+    rootDir: backend
+    region: singapore          # the Render region nearest India
+    plan: starter              # "free" sleeps after 15 minutes, which ends games in progress
+    buildCommand: npm ci --omit=dev
+    startCommand: node src/database/migrate.js && node src/server.js
+    healthCheckPath: /health
+    autoDeploy: true           # every push to the repository goes live
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: APP_NAME
+        value: Namma Rummy
+      - key: JWT_SECRET
+        generateValue: true    # a random secret, made once; changing it logs everyone out
+      - key: LEGAL_OWNER
+        sync: false            # the person or company that publishes the app (privacy policy)
+      - key: SUPPORT_EMAIL
+        sync: false            # an address players can write to (privacy policy)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: namma-rummy-db
+          property: connectionString
+
+databases:
+  - name: namma-rummy-db
+    region: singapore
+    plan: basic-256mb          # "free" is deleted after 30 days; keep that for a trial only
+    postgresMajorVersion: "17"
