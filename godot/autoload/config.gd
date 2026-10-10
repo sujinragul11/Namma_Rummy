@@ -65,8 +65,12 @@ func set_server_url(url: String) -> void:
 
 
 ## The server a test build uses until another address is typed in.
+## A test build on a phone plays on the public server once there is one; before that, on the
+## PC on its own hotspot. The Server field stays editable either way.
 func default_server_url() -> String:
-	return PHONE_TEST_SERVER_URL if OS.has_feature("mobile") else DEFAULT_SERVER_URL
+	if not OS.has_feature("mobile"):
+		return DEFAULT_SERVER_URL
+	return RELEASE_SERVER_URL if not RELEASE_SERVER_URL.is_empty() else PHONE_TEST_SERVER_URL
 
 
 ## Accepts what people type: "192.168.1.5:3001", with or without http://, with a trailing slash.
