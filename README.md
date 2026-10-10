@@ -114,6 +114,7 @@ rummy-multiplayer/
 │   ├── export_presets.cfg         # Android and iOS export settings (package name, icons, version code)
 │   └── tests/                     # Rule cross-check, two-player client test, UI tour, effects preview, store rules
 ├── store/                         # Store listing texts, form answers and graphics
+├── docs/                          # Static web pages: the privacy policy (publish with GitHub Pages)
 ├── build-android.bat              # Builds the .aab for Google Play and an .apk for a phone
 └── README.md
 ```
@@ -522,7 +523,7 @@ The store texts, the graphics and the answers for the store forms are in `store/
 
 1. Put the public server address into `RELEASE_SERVER_URL` in `godot/autoload/config.gd`.
    Store builds play on that server only and hide the Server field.
-2. The package name is `com.roririsoft.nammarummy` (in `godot/export_presets.cfg`). It cannot
+2. The package name is `app.nammarummy.com` (in `godot/export_presets.cfg`). It cannot
    be changed after the first upload, so change it now if you want another one.
 
 **Android**

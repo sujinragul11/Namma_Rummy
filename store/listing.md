@@ -8,7 +8,7 @@ The game server runs at `https://namma-rummy.onrender.com` (Render; see `render.
 | | |
 |---|---|
 | App name | Namma Rummy |
-| Package name (Android) / Bundle ID (iOS) | `com.roririsoft.nammarummy` |
+| Package name (Android) / Bundle ID (iOS) | `app.nammarummy.com` |
 | Category | Games > Card |
 | Price | Free, no in-app purchases, no ads |
 | Website | `https://namma-rummy.onrender.com/` |
