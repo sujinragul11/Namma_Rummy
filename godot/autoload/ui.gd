@@ -9,6 +9,8 @@ const NOTICE_SECONDS := 3.5
 ## Notices stand on this line, in the strip between the table's top bar and its piles.
 const NOTICES_BOTTOM := 134.0
 const PASSWORD_BOX_TOP := 48
+## The strip at the right end of a password field that holds the show/hide eye; a fingertip wide.
+const REVEAL_WIDTH := 60.0
 const NOTICE_COLORS := {
 	"info": Color(0, 0, 0, 0.82),
 	"warning": Color("ef6c00"),
@@ -39,6 +41,7 @@ var _question_box: ConfirmationDialog
 var _password_box: ConfirmationDialog
 var _password_text: Label
 var _password_edit: LineEdit
+var _password_eye: BaseButton
 var _on_accept := Callable()
 var _notices: VBoxContainer
 
@@ -73,6 +76,9 @@ func _ready() -> void:
 	_password_box.add_child(password_form)
 	_password_text = Label.new()
 	_password_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# Wrapped at a known width from the start: otherwise the first box opened wraps the text a
+	# word per line and runs far off the bottom of the screen, buttons and all
+	_password_text.custom_minimum_size.x = 500
 	password_form.add_child(_password_text)
 	_password_edit = LineEdit.new()
 	_password_edit.name = "PasswordBoxEdit"
@@ -96,8 +102,9 @@ func _ready() -> void:
 
 	Game.notice.connect(notify)
 	Game.action_failed.connect(alert)
-	# Every button in the game dips a little when pressed
+	# Every button in the game dips a little when pressed, and every password field gets an eye
 	get_tree().node_added.connect(_on_node_added)
+	_password_eye = add_reveal_button(_password_edit)
 
 
 ## Shows a message with an OK button.
@@ -123,6 +130,7 @@ func ask_password(title: String, text: String, accept_text: String, on_accept: C
 	_password_box.title = title
 	_password_text.text = text
 	_password_edit.text = ""
+	_password_eye.button_pressed = false
 	_password_box.ok_button_text = accept_text
 	_password_box.popup_centered(Vector2i(560, 0))
 	# Near the top of the screen, so a phone's keyboard does not cover the field
@@ -185,7 +193,11 @@ func coins_text(amount: int) -> String:
 func leave_game_warning() -> String:
 	var text := "Leaving counts as a drop and you cannot rejoin this game."
 	var stake := int(Game.state.get("stake", 0))
-	if stake > 0:
+	var point_value := int(Game.state.get("pointValue", 0))
+	if point_value > 0:
+		# A Points table for coins a point: leaving costs the 40 points of a middle drop
+		text += "\n\nThe drop costs 40 points: %s coins." % coins_text(40 * point_value)
+	elif stake > 0:
 		text += "\n\nThe %s coins you paid to sit down stay in the pot." % coins_text(stake)
 	return text
 
@@ -216,6 +228,36 @@ func box(color: Color, radius: int, margin_x: float, margin_y: float) -> StyleBo
 func tint_button(button: Button, color: Color) -> void:
 	for state_name: String in ["normal", "hover", "pressed", "disabled"]:
 		button.add_theme_stylebox_override(state_name, _button_box(color, state_name))
+
+
+## Puts an eye at the right end of a password field: tap it to see what was typed, tap again to
+## hide it. Every field with `secret` set gets one on its own; this is for fields made before that.
+func add_reveal_button(edit: LineEdit) -> BaseButton:
+	if edit.has_node("RevealButton"):
+		return edit.get_node("RevealButton")
+	var eye := TextureButton.new()
+	eye.name = "RevealButton"
+	eye.toggle_mode = true
+	# The field keeps the cursor (and a phone its keyboard) while the eye is tapped
+	eye.focus_mode = Control.FOCUS_NONE
+	eye.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	eye.tooltip_text = "Show password"
+	eye.anchor_left = 1.0
+	eye.anchor_right = 1.0
+	eye.anchor_bottom = 1.0
+	eye.offset_left = -REVEAL_WIDTH
+	eye.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	eye.toggled.connect(func(shown: bool) -> void:
+		edit.secret = not shown
+		eye.tooltip_text = "Hide password" if shown else "Show password")
+	eye.draw.connect(_draw_eye.bind(eye, edit))
+	# The text stops short of the eye instead of running under it
+	for state_name: String in ["normal", "read_only"]:
+		var style := edit.get_theme_stylebox(state_name).duplicate() as StyleBox
+		style.content_margin_right = REVEAL_WIDTH
+		edit.add_theme_stylebox_override(state_name, style)
+	edit.add_child(eye)
+	return eye
 
 
 ## Makes a control grow from small to full size, with a little bounce. For things that appear.
@@ -253,6 +295,10 @@ func _on_password_accepted() -> void:
 
 
 func _on_node_added(node: Node) -> void:
+	var edit := node as LineEdit
+	if edit != null and edit.secret:
+		add_reveal_button(edit)
+		return
 	var button := node as BaseButton
 	if button == null or button is LinkButton or button is CheckBox:
 		return
@@ -266,6 +312,30 @@ func _press(button: BaseButton, down: bool) -> void:
 	button.pivot_offset = button.size / 2.0
 	var target := Vector2(0.95, 0.95) if down else Vector2.ONE
 	button.create_tween().tween_property(button, "scale", target, 0.08)
+
+
+# An eye drawn in code, like the cards, so a phone without an icon font shows no empty box.
+# Struck through while the password is showing: tapping it then hides the password again.
+func _draw_eye(eye: BaseButton, edit: LineEdit) -> void:
+	var color := Color("424242") if eye.is_hovered() or eye.button_pressed else Color("757575")
+	var middle := eye.size / 2.0
+	var half_width := 15.0
+	var half_height := 9.0
+	var outline := PackedVector2Array()
+	for lid: float in [-1.0, 1.0]:
+		for i in range(17):
+			var t := i / 16.0
+			if lid > 0.0:
+				t = 1.0 - t  # the lower lid runs back, so the outline closes
+			outline.append(middle + Vector2(lerpf(-half_width, half_width, t), lid * half_height * sin(PI * t)))
+	eye.draw_polyline(outline, color, 2.5, true)
+	eye.draw_circle(middle, 5.0, color, true, -1.0, true)
+	if eye.button_pressed:
+		var slash := Vector2(13, 12)
+		var field := edit.get_theme_stylebox("normal") as StyleBoxFlat
+		if field != null:
+			eye.draw_line(middle - slash, middle + slash, field.bg_color, 7.0, true)
+		eye.draw_line(middle - slash, middle + slash, color, 2.5, true)
 
 
 # A button with a darker lower edge, so it reads as something to press.

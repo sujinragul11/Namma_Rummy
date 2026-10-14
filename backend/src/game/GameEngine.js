@@ -5,8 +5,12 @@ const CARDS_PER_PLAYER = 13;
 const FIRST_DROP_POINTS = 20;
 const MIDDLE_DROP_POINTS = 40;
 const WRONG_DECLARATION_POINTS = 80;
+const MAX_LOSS_POINTS = 80; // no hand and no penalty costs more
 const MAX_MISSED_TURNS = 3; // consecutive timeouts before a player is dropped
-const NEXT_ROUND_DELAY_MS = 12000;
+const NEXT_ROUND_DELAY_MS = (parseFloat(process.env.NEXT_ROUND_SECONDS) || 12) * 1000;
+// Deals Rummy: every player starts with this many chips for each deal to be played, the most
+// a hand can cost (80), so nobody runs out before the last deal
+const CHIPS_PER_DEAL = 80;
 const TURN_TIMEOUT_MS = (parseInt(process.env.TURN_TIMEOUT_SECONDS, 10) || 30) * 1000;
 // After a valid declaration: how long the others have to arrange their cards and hand them in
 const ARRANGE_TIMEOUT_MS = (parseInt(process.env.ARRANGE_TIMEOUT_SECONDS, 10) || 15) * 1000;
@@ -15,10 +19,16 @@ const ARRANGE_TIMEOUT_MS = (parseInt(process.env.ARRANGE_TIMEOUT_SECONDS, 10) ||
 // limit is out, until one is left; without one the game is a single round.
 // A closed joker lies face down: a player gets to see it only once their own hand holds a
 // pure sequence (the "first life").
+// Deals Rummy is a fixed number of deals played for chips: the winner of a deal takes from
+// each loser as many chips as that loser's points, and after the last deal the most chips
+// win. Players level on chips then play one more deal between them.
 const GAME_TYPES = {
-  points: { poolLimit: null, closedJoker: false },
-  pool: { poolLimit: 101, closedJoker: false },
-  close_joker: { poolLimit: 240, closedJoker: true }
+  points: { poolLimit: null, closedJoker: false, deals: null },
+  pool: { poolLimit: 101, closedJoker: false, deals: null },
+  pool_201: { poolLimit: 201, closedJoker: false, deals: null },
+  close_joker: { poolLimit: 240, closedJoker: true, deals: null },
+  deals_2: { poolLimit: null, closedJoker: false, deals: 2 },
+  deals_3: { poolLimit: null, closedJoker: false, deals: 3 }
 };
 
 class GameEngine {
@@ -44,6 +54,12 @@ class GameEngine {
     this.round = 0;
     this.lastResult = null;
     this.stake = 0; // coins each player pays to sit down; 0 is a free table
+    // Points rummy for so many coins a point: each loser pays the winner points x pointValue,
+    // out of the stake they put down (80 points' worth). 0 when the winner takes the stakes.
+    this.pointValue = 0;
+    // A private table is for the host's friends: it is never listed, and only someone with
+    // the room code can sit down
+    this.isPrivate = false;
     this.createdAt = new Date();
   }
 
@@ -90,6 +106,7 @@ class GameEngine {
       lastDrawnId: null,
       drawnFromDiscard: false,
       seenJoker: false, // per round; matters only while the joker is closed
+      chips: 0, // Deals Rummy only; given out when the first deal is dealt
       joinedAt: new Date()
     });
 
@@ -155,6 +172,11 @@ class GameEngine {
 
     if (this.players.size < 2) {
       throw new Error('Need at least 2 players to start');
+    }
+
+    const { deals } = this.rules;
+    if (deals) {
+      for (const player of this.players.values()) player.chips = CHIPS_PER_DEAL * deals;
     }
 
     this.startRound();
@@ -248,10 +270,15 @@ class GameEngine {
       closedJoker: this.rules.closedJoker,
       jokerHidden,
       poolLimit: this.rules.poolLimit,
+      deals: this.rules.deals, // Deals Rummy: how many deals; round is the deal being played
       // Coins: what each player paid to sit down, and what the winner takes. A player who
-      // left a game in progress stays in the list, and so does their entry in the pot
+      // left a game in progress stays in the list, and so does their entry in the pot.
+      // At a Points table played for a value a point, the stake is only held: each loser
+      // pays their points x pointValue out of it, so there is no pot.
       stake: this.stake,
-      pot: this.stake * this.players.size,
+      pointValue: this.pointValue,
+      pot: this.pointValue ? 0 : this.stake * this.players.size,
+      private: this.isPrivate,
       round: this.round,
       winner: this.winner,
       lastResult: this.lastResult,
@@ -271,6 +298,7 @@ class GameEngine {
         eliminated: player.eliminated,
         handCount: player.hand.length,
         totalScore: player.totalScore,
+        chips: player.chips || 0,
         seenJoker: player.seenJoker,
         submitted: this.submitted.includes(playerId)
       });
@@ -576,7 +604,7 @@ class GameEngine {
     // A points game is a single round. A pool game runs until one player is left under the limit.
     let matchOver = true;
     let matchWinner = winnerId;
-    const { poolLimit } = this.rules;
+    const { poolLimit, deals } = this.rules;
     if (poolLimit) {
       for (const player of this.players.values()) {
         if (player.totalScore >= poolLimit) player.eliminated = true;
@@ -584,6 +612,18 @@ class GameEngine {
       const contenders = this.getContenders();
       matchOver = contenders.length <= 1;
       matchWinner = matchOver ? (contenders.length === 1 ? contenders[0].id : winnerId) : null;
+    } else if (deals) {
+      ({ matchOver, matchWinner } = this.settleDeal(results, winnerId, deals));
+    } else if (this.pointValue) {
+      // Points for coins: each loser pays their points at the table's value to the winner
+      let won = 0;
+      for (const result of results) {
+        if (result.id === winnerId) continue;
+        result.coins = -Math.min(result.points, MAX_LOSS_POINTS) * this.pointValue;
+        won -= result.coins;
+      }
+      const winnerResult = results.find(result => result.id === winnerId);
+      if (winnerResult) winnerResult.coins = won;
     }
 
     for (const result of results) {
@@ -612,6 +652,44 @@ class GameEngine {
     }
 
     return this.lastResult;
+  }
+
+  // Deals Rummy, at the end of a deal: the winner takes each loser's points in chips. After
+  // the last deal the player with the most chips has won; players level at the top play one
+  // more deal between them. Adds `chips` (after the deal) and `chipsWon` to each result.
+  settleDeal(results, winnerId, deals) {
+    const winner = winnerId ? this.players.get(winnerId) : null;
+    let won = 0;
+    for (const result of results) {
+      const player = this.players.get(result.id);
+      if (result.id !== winnerId) {
+        const lost = Math.min(result.points, player.chips);
+        player.chips -= lost;
+        won += lost;
+        result.chipsWon = -lost;
+      }
+    }
+    if (winner) winner.chips += won;
+    for (const result of results) {
+      result.chips = this.players.get(result.id).chips;
+      if (result.id === winnerId) result.chipsWon = won;
+    }
+
+    const contenders = this.getContenders(); // a player who left is out of the running
+    if (contenders.length <= 1) {
+      return { matchOver: true, matchWinner: contenders.length === 1 ? contenders[0].id : winnerId };
+    }
+    if (this.round < deals) return { matchOver: false, matchWinner: null };
+
+    const most = Math.max(...contenders.map(player => player.chips));
+    const leaders = contenders.filter(player => player.chips === most);
+    if (leaders.length === 1) return { matchOver: true, matchWinner: leaders[0].id };
+
+    // A tie: only the leaders play the next deal
+    for (const player of contenders) {
+      if (player.chips < most) player.eliminated = true;
+    }
+    return { matchOver: false, matchWinner: null };
   }
 
   nextPlayer() {
@@ -658,6 +736,8 @@ class GameEngine {
       round: this.round,
       lastResult: this.lastResult,
       stake: this.stake,
+      pointValue: this.pointValue,
+      isPrivate: this.isPrivate,
       createdAt: this.createdAt
     };
   }

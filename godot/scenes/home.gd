@@ -7,12 +7,30 @@ extends Control
 ## a bar of small buttons runs along the bottom. A game tile opens a box to set up the table;
 ## the friends tile opens the room-code form.
 
-const GAME_TYPES := [["Points", "points"], ["Pool 101", "pool"], ["Close Joker 240", "close_joker"]]
-const GAME_TITLES := ["Points Rummy", "Pool Rummy", "Close Joker Rummy"]
-const PLAYER_CHOICES := [2, 3, 4, 6]
-# The pool games, offered side by side in the setup box as "101 Points / 240 Points"
-const POOL_CHOICES := [["101 Points", 1], ["240 Points", 2]]
+const GAME_TYPES := [
+	["Points", "points"], ["Pool 101", "pool"], ["Close Joker 240", "close_joker"],
+	["2-Deal", "deals_2"], ["3-Deal", "deals_3"], ["Pool 201", "pool_201"],
+]
+const GAME_TITLES := ["Points Rummy", "Pool Rummy", "Close Joker Rummy", "Deals Rummy", "Deals Rummy", "Pool Rummy"]
+const PLAYER_CHOICES := [2, 3, 4, 5, 6]
+# "Play Now" offers the two tables most players look for, so a search finds company quickly;
+# a private table can have any number of seats. Deals Rummy is played two-handed.
+const MATCH_PLAYERS := [2, 6]
+# The value of a point offered first at a Points table
+const FIRST_POINT_VALUE := 10
+# The tabs of the setup box: each holds one or more GAME_TYPES entries (by index). A tab with
+# more than one shows a row of marks to pick between them, under the heading given here, with
+# the names in VARIANT_NAMES.
+const MODES := [
+	["Points Rummy", [0], ""],
+	["Pool Rummy", [1, 5, 2], "SELECT POOL"],
+	["Deals Rummy", [3, 4], "SELECT DEALS"],
+]
+const VARIANT_NAMES := {1: "101 Points", 5: "201 Points", 2: "240 · Close Joker", 3: "2 Deals", 4: "3 Deals"}
 const SETUP_BROWN := Color("8d6e63")
+const TAB_CREAM := Color("f7eed9")
+const TAB_GOLD := Color("f6c232")
+const TAB_EDGE := Color("b8a28f")
 const TEAL_BUTTON := Color("2bb3a3")
 const GREEN_BUTTON := Color("43b649")
 const YELLOW_BUTTON := Color("f2c21b")
@@ -28,11 +46,13 @@ A card is cut as the joker every round. Every card of that rank is wild, togethe
 
 Points: J, Q, K and A count 10, number cards their value, jokers 0. The winner scores 0; a losing hand counts its loose cards, up to 80. Dropping out costs 20 before your first turn and 40 after. A wrong declaration costs 80.
 
-Points Rummy is one round. Pool Rummy goes round after round: reach 101 and you are out; the last player left wins. Close Joker is pool to 240, and the joker lies face down until you have made a pure sequence.
+Points Rummy is one round, played for coins a point: every loser pays the winner their points times the table's value. Pool Rummy goes round after round: reach 101 (or 201) and you are out; the last player left wins. Close Joker is pool to 240, and the joker lies face down until you have made a pure sequence. Deals Rummy is 2 or 3 deals played for chips: the winner of a deal takes each loser's points in chips, and the most chips after the last deal win.
+
+Play Now finds players for you, the ones in your region first: no room code needed. To play with your friends, open a private table under Play with Friends and give them its room code.
 
 When someone declares, everyone else gets 15 seconds to arrange their cards before they are counted. Every turn has 30 seconds.
 
-Coins are play tokens with no cash value. Every player pays the table's entry on sitting down, and the winner of the game takes everything paid in."""
+Coins are play tokens with no cash value. At a Pool or Deals table every player pays the entry on sitting down, and the winner of the game takes everything paid in."""
 
 var _registering := false
 var _keyboard_height := 0
@@ -41,10 +61,17 @@ var _float_time := 0.0
 var _logo_rest_y := 0.0  # where the layout puts the logo; it floats around this
 var _until_twinkle := 1.5  # seconds until the next glint on the logo
 var _stake_picked := false  # false until the player has chosen an entry themselves
+var _point_index := GameClient.POINT_VALUES.find(FIRST_POINT_VALUE)  # the value of a point chosen
+var _point_picked := false  # the same for the value of a point
+var _search: MatchSearch  # the box shown while "Play Now" looks for players
 var _coins_label: CoinLabel
 var _stake_coins: CoinLabel  # the amount in the pill above the slider
 var _player_chips: Array[ChoiceChip] = []  # one per PLAYER_CHOICES entry
-var _pool_chips: Array[ChoiceChip] = []  # one per POOL_CHOICES entry
+var _mode_tabs: Array[Button] = []  # one per MODES entry
+var _variant_chips: Dictionary = {}  # GAME_TYPES index -> ChoiceChip, for the tabs that hold several
+# The setup box was opened from the Private Table box: the table is for the player's own
+# friends, joinable with its code only
+var _private_table := false
 
 @onready var _login_row: Control = %Margin
 @onready var _brand: VBoxContainer = %Brand
@@ -73,7 +100,7 @@ var _pool_chips: Array[ChoiceChip] = []  # one per POOL_CHOICES entry
 @onready var _account_button: Button = %AccountButton
 @onready var _points_tile: GameTile = %PointsTile
 @onready var _pool_tile: GameTile = %PoolTile
-@onready var _close_joker_tile: GameTile = %CloseJokerTile
+@onready var _deals_tile: GameTile = %DealsTile
 @onready var _friends_tile: GameTile = %FriendsTile
 
 @onready var _setup_overlay: MenuOverlay = %SetupOverlay
@@ -83,10 +110,14 @@ var _pool_chips: Array[ChoiceChip] = []  # one per POOL_CHOICES entry
 @onready var _players_option: OptionButton = %PlayersOption
 @onready var _stake_option: OptionButton = %StakeOption
 @onready var _players_chips: HBoxContainer = %PlayersChips
-@onready var _pool_column: Control = %PoolColumn
-@onready var _pool_divider: Control = %Divider
-@onready var _pool_chips_row: HBoxContainer = %PoolChips
+@onready var _players_column: Control = %PlayersColumn
+@onready var _mode_tabs_row: HBoxContainer = %ModeTabs
+@onready var _variant_column: Control = %VariantColumn
+@onready var _variant_label: Label = %VariantLabel
+@onready var _variant_chips_row: HBoxContainer = %VariantChips
 @onready var _stake_pill: PanelContainer = %StakePill
+@onready var _stake_label: Label = %StakeLabel
+@onready var _stake_hint: Label = %StakeHint
 @onready var _free_label: Label = %FreeLabel
 @onready var _stake_slider: HSlider = %StakeSlider
 @onready var _create_button: Button = %CreateButton
@@ -143,7 +174,7 @@ func _ready() -> void:
 	_switch_button.pressed.connect(_on_switch_mode)
 	_points_tile.pressed.connect(_open_setup.bind(0))
 	_pool_tile.pressed.connect(_open_setup.bind(1))
-	_close_joker_tile.pressed.connect(_open_setup.bind(2))
+	_deals_tile.pressed.connect(_open_setup.bind(3))
 	_friends_tile.pressed.connect(_join_overlay.open)
 	_setup_close_button.pressed.connect(_setup_overlay.close)
 	_join_close_button.pressed.connect(_join_overlay.close)
@@ -155,8 +186,8 @@ func _ready() -> void:
 	_invite_friends_button.pressed.connect(_open_friends)
 	_help_button.pressed.connect(_rules_overlay.open)
 	_account_button.pressed.connect(_open_profile)
-	_avatar_pill.gui_input.connect(_on_pill_input)
-	_coin_pill.gui_input.connect(_on_pill_input)
+	_avatar_pill.gui_input.connect(_on_pill_input.bind(_avatar_pill))
+	_coin_pill.gui_input.connect(_on_pill_input.bind(_coin_pill))
 	_friends_button.pressed.connect(_open_friends)
 	_profile_button.pressed.connect(_open_profile)
 	_logout_button.pressed.connect(Game.logout)
@@ -169,6 +200,9 @@ func _ready() -> void:
 	Game.busy_changed.connect(_refresh)
 	Game.friends_changed.connect(_refresh)
 	Game.coins_changed.connect(_refresh_coins)
+	_search = MatchSearch.new()
+	add_child(_search)
+	_search.closed.connect(Game.cancel_match)  # closing the box ends the search
 	_refresh_coins()
 	_brand.resized.connect(_fit_logo)
 	_brand.sort_children.connect(_on_brand_sorted)
@@ -194,24 +228,54 @@ func _build_top_bar() -> void:
 # pool, the entry on a pill with a slider under it. The hidden OptionButtons keep the choice;
 # these widgets only show it and change it.
 func _build_setup_widgets() -> void:
+	# The kinds of game as a row of tabs; the chosen one is gold
+	var mode_group := ButtonGroup.new()
+	for index in MODES.size():
+		var tab := Button.new()
+		tab.text = str(MODES[index][0]).to_upper()
+		tab.toggle_mode = true
+		tab.button_group = mode_group
+		tab.focus_mode = Control.FOCUS_NONE
+		tab.custom_minimum_size = Vector2(0, 54)
+		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tab.add_theme_font_override("font", Ui.bold_font)
+		tab.add_theme_font_size_override("font_size", 20)
+		for color_name: String in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+			tab.add_theme_color_override(color_name, ChoiceChip.TEXT)
+		for state_name: String in ["normal", "hover"]:
+			tab.add_theme_stylebox_override(state_name, _tab_box(TAB_CREAM if state_name == "normal" else TAB_CREAM.darkened(0.04)))
+		for state_name: String in ["pressed", "hover_pressed"]:
+			tab.add_theme_stylebox_override(state_name, _tab_box(TAB_GOLD))
+		tab.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		tab.toggled.connect(func(on: bool) -> void:
+			if on:
+				_show_mode(index))
+		_mode_tabs_row.add_child(tab)
+		_mode_tabs.append(tab)
+	_mode_tabs_row.custom_minimum_size.x = 700.0
+
+	# The marks for the games inside a tab (101 or 240 for the pool games); one group for all,
+	# since only one tab's marks are on show at a time
+	var variant_group := ButtonGroup.new()
+	for mode: Array in MODES:
+		for type_index: int in mode[1]:
+			if mode[1].size() < 2:
+				continue
+			var chip := ChoiceChip.new(VARIANT_NAMES.get(type_index, GAME_TITLES[type_index]), variant_group)
+			chip.toggled.connect(func(on: bool) -> void:
+				if on:
+					_pick_game(type_index))
+			_variant_chips_row.add_child(chip)
+			_variant_chips[type_index] = chip
+
 	var players_group := ButtonGroup.new()
 	for index in PLAYER_CHOICES.size():
-		var chip := ChoiceChip.new("%d Players" % PLAYER_CHOICES[index], players_group)
+		var chip := ChoiceChip.new("%dP" % PLAYER_CHOICES[index], players_group)
 		chip.toggled.connect(func(on: bool) -> void:
 			if on:
 				_players_option.select(index))
 		_players_chips.add_child(chip)
 		_player_chips.append(chip)
-
-	var pool_group := ButtonGroup.new()
-	for index in POOL_CHOICES.size():
-		var chip := ChoiceChip.new(POOL_CHOICES[index][0], pool_group)
-		chip.toggled.connect(func(on: bool) -> void:
-			if on:
-				_type_option.select(POOL_CHOICES[index][1])
-				_setup_title.text = GAME_TITLES[POOL_CHOICES[index][1]])
-		_pool_chips_row.add_child(chip)
-		_pool_chips.append(chip)
 
 	# The entry: a brown pill with the coins on it
 	_stake_pill.add_theme_stylebox_override("panel", Ui.box(SETUP_BROWN, 30, 30, 8))
@@ -240,6 +304,77 @@ func _build_setup_widgets() -> void:
 	_stake_slider.max_value = GameClient.STAKES.size() - 1
 	_stake_slider.tick_count = GameClient.STAKES.size()
 	_stake_slider.value_changed.connect(_on_stake_slid)
+
+
+# The tab that holds this game (an index into GAME_TYPES).
+func _mode_of(type_index: int) -> int:
+	for index in MODES.size():
+		if type_index in MODES[index][1]:
+			return index
+	return 0
+
+
+# A tab was chosen: its marks come on show, and its first game is picked unless the game
+# already picked belongs to it.
+func _show_mode(mode_index: int) -> void:
+	var games: Array = MODES[mode_index][1]
+	var several := games.size() > 1
+	_variant_column.visible = several
+	_variant_label.text = MODES[mode_index][2]
+	for type_index: int in _variant_chips:
+		_variant_chips[type_index].visible = type_index in games
+	_pick_game(_type_option.selected if _type_option.selected in games else games[0])
+
+
+# Pressing a tab or mark here releases the others of its group; the `toggled` that follows
+# comes back to this game, finds everything already pressed, and goes no further.
+func _pick_game(type_index: int) -> void:
+	_type_option.select(type_index)
+	_setup_title.text = GAME_TITLES[type_index]
+	if _variant_chips.has(type_index):
+		_variant_chips[type_index].button_pressed = true
+	_mode_tabs[_mode_of(type_index)].button_pressed = true
+	# The seats and the coins offered depend on the game
+	_refresh_players()
+	_show_stake()
+
+
+func _game_type() -> String:
+	return GAME_TYPES[_type_option.selected][1]
+
+
+# A Points table is played for coins a point; every other table for an entry.
+func _per_point() -> bool:
+	return _game_type() == "points"
+
+
+# Deals Rummy found by "Play Now" is two-handed, so its box asks nothing about seats.
+func _seats_fixed() -> bool:
+	return not _private_table and _game_type().begins_with("deals")
+
+
+# The seat counts on offer: all of them for a private table, two or six for "Play Now".
+func _refresh_players() -> void:
+	var offered: Array = PLAYER_CHOICES if _private_table else MATCH_PLAYERS
+	for index in PLAYER_CHOICES.size():
+		_player_chips[index].visible = PLAYER_CHOICES[index] in offered
+	_players_column.visible = not _seats_fixed()
+	if not PLAYER_CHOICES[_players_option.selected] in offered:
+		_player_chips[0].button_pressed = true  # two players
+	elif not _player_chips[_players_option.selected].button_pressed:
+		_player_chips[_players_option.selected].button_pressed = true
+
+
+func _chosen_players() -> int:
+	return 2 if _seats_fixed() else PLAYER_CHOICES[_players_option.selected]
+
+
+# One tab of the game-mode row: a flat box with a brown edge, square so the tabs join up.
+func _tab_box(fill: Color) -> StyleBoxFlat:
+	var box := Ui.box(fill, 4, 16, 8)
+	box.border_color = TAB_EDGE
+	box.set_border_width_all(2)
+	return box
 
 
 # A round white knob with a teal rim, as a picture for the slider to carry.
@@ -331,7 +466,7 @@ func _play_entrance() -> void:
 	if Game.is_logged_in():
 		# The tiles deal themselves out one after another
 		for index in 4:
-			Ui.pop_in([_points_tile, _pool_tile, _close_joker_tile, _friends_tile][index], 0.06 * index)
+			Ui.pop_in([_points_tile, _pool_tile, _deals_tile, _friends_tile][index], 0.06 * index)
 	else:
 		Ui.pop_in(_logo)
 		Ui.pop_in(_auth_panel, 0.08)
@@ -391,26 +526,56 @@ func _refresh_coins() -> void:
 	# Until the player chooses, the cheapest table played for coins is offered
 	if not _stake_picked or GameClient.STAKES[_stake_option.selected] > Game.coins:
 		_stake_option.select(1 if Game.coins >= GameClient.STAKES[1] else 0)
+	# and at a Points table the value of a point in the picture, or the dearest within reach
+	if not _point_picked or _point_cost(_point_index) > Game.coins:
+		_point_index = GameClient.POINT_VALUES.find(FIRST_POINT_VALUE)
+		while _point_index > 0 and _point_cost(_point_index) > Game.coins:
+			_point_index -= 1
 	_show_stake()
 
 
+# What sitting at a Points table holds back: the worst hand at that value of a point.
+func _point_cost(index: int) -> int:
+	return GameClient.POINT_VALUES[index] * GameClient.MAX_POINTS
+
+
+# The coins on the slider: the value of a point at a Points table, the entry at any other.
 # The slider reaches only the tables the player can afford; the pill shows the one chosen.
 func _show_stake() -> void:
+	var per_point := _per_point()
+	var count := GameClient.POINT_VALUES.size() if per_point else GameClient.STAKES.size()
 	var reach := 0
-	for index in GameClient.STAKES.size():
-		if GameClient.STAKES[index] <= Game.coins:
+	for index in count:
+		var cost: int = _point_cost(index) if per_point else GameClient.STAKES[index]
+		if cost <= Game.coins:
 			reach = index
 	_stake_slider.max_value = maxi(reach, 0)
-	_stake_slider.set_value_no_signal(_stake_option.selected)
-	var stake: int = GameClient.STAKES[_stake_option.selected]
-	_stake_coins.visible = stake > 0
-	_stake_coins.amount = stake
-	_free_label.visible = stake == 0
+	_stake_slider.tick_count = count
+	var chosen := _point_index if per_point else _stake_option.selected
+	_stake_slider.set_value_no_signal(chosen)
+	var amount: int = GameClient.POINT_VALUES[chosen] if per_point else GameClient.STAKES[chosen]
+	_stake_coins.visible = amount > 0
+	_stake_coins.amount = amount
+	_stake_coins.suffix = "per point" if per_point else ""
+	_free_label.visible = amount == 0
+	_stake_label.text = "SELECT POINT VALUE" if per_point else "SELECT ENTRY AMOUNT"
+	if amount == 0:
+		_stake_hint.text = "A free table: played for fun, no coins change hands."
+	elif per_point:
+		_stake_hint.text = "Each loser pays the winner their points x %s coins. Up to %s coins (80 points) are held while you play." % [
+			Ui.coins_text(amount), Ui.coins_text(_point_cost(chosen))
+		]
+	else:
+		_stake_hint.text = "Every player pays the entry on sitting down; the winner takes it all."
 
 
 func _on_stake_slid(value: float) -> void:
-	_stake_picked = true
-	_stake_option.select(int(value))
+	if _per_point():
+		_point_picked = true
+		_point_index = int(value)
+	else:
+		_stake_picked = true
+		_stake_option.select(int(value))
 	_show_stake()
 	Sound.play("select")
 
@@ -471,33 +636,56 @@ func _on_auth_failed(message: String) -> void:
 		Ui.alert(WRONG_LOGIN_MESSAGE if message == "Invalid credentials" else message, "Login failed")
 
 
-# A game tile was tapped: the setup box opens with that game chosen
-func _open_setup(type_index: int) -> void:
+# The setup box opens with a game chosen: from a game tile, or from the Private Table box
+# (`private`: the table is for the player's friends and can only be joined with its code).
+func _open_setup(type_index: int, private: bool = false) -> void:
+	_private_table = private
+	# The tabs and marks show what the hidden options hold
 	_type_option.select(type_index)
-	_setup_title.text = GAME_TITLES[type_index]
-	# The marks show what the hidden options hold; the pool choice only for the pool games
+	_show_mode(_mode_of(type_index))
 	_player_chips[_players_option.selected].button_pressed = true
-	var pool := type_index > 0
-	_pool_column.visible = pool
-	_pool_divider.visible = pool
-	if pool:
-		for index in POOL_CHOICES.size():
-			if POOL_CHOICES[index][1] == type_index:
-				_pool_chips[index].button_pressed = true
+	_create_button.text = "Create Table" if private else "Play Now"
 	_show_stake()
 	_join_overlay.close()  # one box at a time
 	_setup_overlay.open()
 
 
-# "Create table" in the private-table box: the setup box takes over, with a points game offered
+# "Create table" in the Private Table box: the setup box takes over for a private table
 func _on_create_table() -> void:
-	_open_setup(0)
+	_open_setup(0, true)
 
 
+# "Create Table" opens a private table and its lobby, with a room code to give to friends.
+# "Play Now" asks the server for players who want the same table, nearest region first, and
+# shows the search until they are found: no room code, no waiting for a host.
 func _on_create() -> void:
-	var game_type: String = GAME_TYPES[_type_option.selected][1]
-	var max_players: int = PLAYER_CHOICES[_players_option.selected]
-	Game.create_game(game_type, max_players, GameClient.STAKES[_stake_option.selected])
+	var game_type := _game_type()
+	var max_players := _chosen_players()
+	var stake: int = GameClient.STAKES[_stake_option.selected]
+	var point_value: int = GameClient.POINT_VALUES[_point_index] if _per_point() else -1
+	if _private_table:
+		Game.create_game(game_type, max_players, stake, true, point_value)
+		return
+	if Game.searching():
+		return
+	_setup_overlay.close()
+	_search.open_for(_describe_table(max_players, stake, point_value))
+	Game.find_match(game_type, max_players, stake, point_value)
+
+
+# The table being searched for, in a line: "Pool Rummy · 201 Points · 6 players · 500 coins".
+func _describe_table(max_players: int, stake: int, point_value: int) -> String:
+	var parts: Array = [GAME_TITLES[_type_option.selected]]
+	if VARIANT_NAMES.has(_type_option.selected):
+		parts.append(VARIANT_NAMES[_type_option.selected])
+	parts.append("%d players" % max_players)
+	if point_value > 0:
+		parts.append("%s coins a point" % Ui.coins_text(point_value))
+	elif point_value < 0 and stake > 0:
+		parts.append("entry %s coins" % Ui.coins_text(stake))
+	else:
+		parts.append("free table")
+	return "  ·  ".join(parts)
 
 
 func _on_join() -> void:
@@ -518,10 +706,15 @@ func _open_profile() -> void:
 	ProfilePanel.open(self)
 
 
-# A tap on the name or the coins opens the profile, where both are explained
-func _on_pill_input(event: InputEvent) -> void:
+# A tap on the name or the coins opens the profile, where both are explained.
+# Like a button, it reacts when the finger lifts, not when it touches down: a panel opened on
+# touch-down is not laid out yet when that same finger lifts, all its buttons still lie in the
+# top-left corner under the finger, and the lift pressed one of them ("Delete account").
+func _on_pill_input(event: InputEvent, pill: Control) -> void:
 	var click := event as InputEventMouseButton
-	if click != null and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
+	if click == null or click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if Rect2(Vector2.ZERO, pill.size).has_point(click.position):  # the finger did not slide away
 		_open_profile()
 
 

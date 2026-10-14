@@ -5,9 +5,10 @@ A real-time multiplayer Rummy card game built with Node.js backend and React Nat
 ## Features
 
 - **Real-time Multiplayer**: Play with friends using WebSocket connections
-- **Multiple Game Modes**: Points, Pool 101, and Close Joker 240 (the joker stays hidden until you make a pure sequence)
-- **Coins**: Every account starts with 50,000 play coins. A table has an entry (free, 1,000, 2,000, 5,000, 10,000, 25,000 or 50,000); each player pays it to sit down and the winner of the game takes the whole pot. Leaving before the cards are dealt gives the entry back; a game that ends without a winner returns every entry. Coins are play money: they cannot be bought, transferred or cashed out
-- **Friends**: Add friends by username, see who is online or in a game, invite a friend to your table with one tap, share the room code on WhatsApp
+- **Play Now (automatic matchmaking)**: pick a game and tap Play Now; the server seats you with other players who want the same table, without a room code. Players in the same region (the phone's time zone) are matched first; after 8 seconds the search widens to time zones up to 3 hours away, after 16 seconds to everyone. A 2-seat table starts as soon as two are found; a 6-seat table starts when it is full, or 15 seconds after its second player is found, with whoever is there
+- **Multiple Game Modes**: Points, Pool 101, Pool 201, Close Joker 240 (the joker stays hidden until you make a pure sequence), and Deals Rummy (2 or 3 deals)
+- **Coins**: Every account starts with 50,000 play coins. Points Rummy is played for coins a point (free, 5, 10, 20, 50, 100, 200 or 500): each loser pays the winner their points times that value, and what 80 points cost is held while playing. A Pool or Deals table has an entry (free, 500, 1,000, 2,000, 5,000, 10,000, 25,000 or 50,000); each player pays it to sit down and the winner of the game takes the whole pot. Leaving before the cards are dealt gives the entry back; a game that ends without a winner returns every entry. Coins are play money: they cannot be bought, transferred or cashed out
+- **Friends**: Add friends by username, see who is online or in a game, open a private table (Play with Friends) and invite a friend to it with one tap, share the room code on WhatsApp
 - **Turn Timer**: 30 seconds per turn; the server plays for a player who runs out of time and drops them after three misses in a row
 - **Cross-platform**: Works on iOS and Android
 - **Persistent Games**: Finished games and results are saved to PostgreSQL database
@@ -301,6 +302,11 @@ godot --headless --path . res://tests/coins_e2e.tscn -- --server=http://127.0.0.
 # cards. This one starts and stops its own test backend, on the port and database given here
 godot --headless --path . res://tests/server_restart.tscn -- --port=3112 --db=My_Rummy_restart_test
 
+# Play Now: tiles, setup boxes, the search box and matched tables, through the real screens with two
+# screenless players. Start its test backend with short waits first:
+#   MATCH_REGION_SECONDS=2 MATCH_NEARBY_SECONDS=4 MATCH_FILL_SECONDS=3 NEXT_ROUND_SECONDS=2 node tests/test_server.js --fresh --port=3101 --db=My_Rummy_test
+godot --headless --path . res://tests/match_e2e.tscn -- --profile=matchtest --server=http://127.0.0.1:3101 --mute
+
 # Screens: drives the real UI through three games (points, pool, Close Joker) and saves a picture of each step
 godot --path . res://tests/ui_tour.tscn -- --profile=uitour --server=http://127.0.0.1:3101 --shots=<folder> --rig-flag=<file>
 
@@ -342,7 +348,13 @@ godot --headless --path . res://tests/store_release.tscn -- --profile=storetest 
   (everything counts without a pure sequence; only the pure sequence is safe without a second sequence)
 - Drop = 20 points before your first turn, 40 after; a wrong declaration = 80
 - **Points** games are a single round. **Pool** games continue round after round; a player
-  reaching 101 is eliminated and the last player left wins
+  reaching 101 (or 201 in Pool 201) is eliminated and the last player left wins
+
+### Deals Rummy
+- A fixed number of deals, 2 or 3, played for chips. Every player starts with 80 chips for each deal
+- The winner of a deal takes from each loser as many chips as the loser's points
+- After the last deal the player with the most chips wins the game and the pot. Players level
+  on chips at the top play one more deal between them (the tie-breaker)
 
 ### Close Joker
 - Played and scored like a pool game, with a limit of 240 points instead of 101
@@ -388,8 +400,16 @@ identity from it. Every client event is answered through its acknowledgement cal
 `{ ok: true, ... }` or `{ ok: false, error }`.
 
 #### Client → Server
-- `createGame` `{ gameType, maxPlayers, username }` - Create new game, returns `roomCode`.
-  `gameType` is `points`, `pool` or `close_joker`
+- `createGame` `{ gameType, maxPlayers, stake | pointValue, private, username }` - Create new game, returns `roomCode`.
+  `gameType` is `points`, `pool`, `pool_201`, `close_joker`, `deals_2` or `deals_3`. `stake` is the
+  entry; a Points table can instead have `pointValue` (coins a point). `private` tables are
+  joined with the room code only
+- `findMatch` `{ gameType, maxPlayers, stake | pointValue, timezone }` - Play Now: search for
+  players who want the same table, nearest region first. `timezone` is the phone's offset from
+  UTC in minutes (330 in India). The answer is `{ searching, region }`; `matchStatus` events
+  follow until `matchFound` and the table's `gameState`. A player waiting in a lobby leaves it;
+  one in a game is refused. Disconnecting ends the search
+- `cancelMatch` - End the search, answers `{ cancelled }`
 - `joinGameByRoomCode` `{ roomCode, username }` - Join (or rejoin) a game
 - `joinGame` `{ gameId }` - Join by game id
 - `startGame` - Host starts before the table is full
@@ -416,6 +436,13 @@ identity from it. Every client event is answered through its acknowledgement cal
   `poolLimit` is the points limit (`null` in a points game). In Close Joker `closedJoker` is
   true, and while `jokerHidden` is true `joker` and `wildRank` are `null`;
   `players[].seenJoker` says who has opened it
+  `deals` is the number of deals in Deals Rummy (`round` is the deal, `players[].chips` the chips);
+  `pointValue` is the coins a point at a Points table (the round result then has `coins` per player)
+- `matchStatus` `{ found, needed, inQueue, scope, region, waited, startsIn }` - Where a Play Now
+  search stands: players found for the table so far (with the searcher), `scope` `region`,
+  `nearby` or `everywhere`, and `startsIn` (ms) once a table with free seats will start anyway
+- `matchFound` `{ gameId, roomCode, players }` - The search is over: the player is seated and dealt in
+- `matchFailed` `{ message }` - The player could not be seated (e.g. not enough coins any more)
 - `playerJoined`, `playerLeft`, `playerDisconnected`, `playerReconnected` - Table notices
 - `playerDropped`, `wrongDeclaration` - Round notices
 - `gameOver` - Game ended, with every player's result
@@ -423,7 +450,7 @@ identity from it. Every client event is answered through its acknowledgement cal
   sent on connecting and after every change. Each friend has a `status`: `online`, `lobby`
   (waiting at a table), `playing` or `offline`. `recent` are players met at a table who are in
   none of the lists yet
-- `gameInvite` `{ username, roomCode, poolLimit, closedJoker, maxPlayers, stake, again }` - A friend invites
+- `gameInvite` `{ username, roomCode, poolLimit, closedJoker, deals, maxPlayers, stake, pointValue, again }` - A friend invites
   the player to their table; joining is `joinGameByRoomCode`. `stake` is the entry in coins,
   `again` is true when the two have just played together
 

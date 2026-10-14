@@ -3,7 +3,7 @@ const config = require('./config');
 // The web pages the app stores ask for: privacy policy, terms, and a way to delete an
 // account without installing the app. They are plain HTML without scripts.
 
-const UPDATED = '9 October 2026';
+const UPDATED = '14 October 2026';
 
 const escapeHtml = (text) => String(text)
   .replace(/&/g, '&amp;')
@@ -133,7 +133,9 @@ purchases and no prizes, and nothing in it can be exchanged for money or goods.<
 
 <h2>Play coins</h2>
 <p>Every account gets play coins for free. A table can have an entry in coins, which each
-player pays on sitting down; the winner of the game takes the coins that were paid in. Coins
+player pays on sitting down; the winner of the game takes the coins that were paid in. A
+Points table can instead be played for coins a point: each loser pays the winner their points
+times that value, out of coins held while the game is played. Coins
 are tokens of the game and nothing else: they have no cash value and cannot be bought, sold,
 given to another player, or exchanged for money, goods or services. They are lost when the
 account is deleted. We may change how coins work and may adjust or reset balances.</p>

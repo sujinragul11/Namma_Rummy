@@ -7,6 +7,7 @@ const AVATAR_COLORS: Array[Color] = [
 	Color("1e88e5"), Color("8e24aa"), Color("d81b60"), Color("f4511e"), Color("00897b"), Color("5c6bc0"),
 ]
 const RING_WIDTH := 5.0
+const JOKER_SEEN_COLOR := Color("00e676")
 
 ## Size of the avatar circle, ring included.
 var avatar_size := 58.0:
@@ -31,6 +32,8 @@ var pill := false:
 
 var _player_name := ""
 var _is_turn := false
+var _joker_seen := false
+var _dot_grow := 1.0  # the green dot pops in from 0
 var _avatar: Control
 var _lines_box: PanelContainer
 var _name_label: Label
@@ -69,8 +72,15 @@ func _init() -> void:
 
 
 ## `sitting_out` greys the badge: dropped, eliminated or offline.
-func show_player(player_name: String, info: String, is_turn: bool, sitting_out: bool = false) -> void:
+## `joker_seen` puts a green dot on the avatar: in Close Joker, this player has seen the joker.
+func show_player(player_name: String, info: String, is_turn: bool, sitting_out: bool = false, joker_seen: bool = false) -> void:
 	var turn_started := is_turn and not _is_turn
+	if joker_seen and not _joker_seen and not _player_name.is_empty() and is_inside_tree():
+		# It happened just now, not before we sat down: let the dot pop in so it is noticed
+		_dot_grow = 0.0
+		var pop := _avatar.create_tween()
+		pop.tween_method(_grow_dot, 0.0, 1.0, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_joker_seen = joker_seen
 	_player_name = player_name
 	_is_turn = is_turn
 	_name_label.text = player_name
@@ -108,12 +118,23 @@ func _draw_avatar() -> void:
 	var baseline := center.y + (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
 	_avatar.draw_string(font, Vector2(0, baseline), letter, HORIZONTAL_ALIGNMENT_CENTER, _avatar.size.x, font_size, Color.WHITE)
 
-	if not _is_turn:
-		return
-	# The turn clock: a full ring that empties clockwise, turning red near the end
-	var ring_radius := radius + RING_WIDTH / 2.0 + 2.0
-	var left := Game.turn_fraction()
-	_avatar.draw_arc(center, ring_radius, 0.0, TAU, 48, Color(1, 1, 1, 0.22), RING_WIDTH, true)
-	var ring_color := Color("ffca28") if left > 0.34 else Color("ff5252")
-	if left > 0.0:
-		_avatar.draw_arc(center, ring_radius, -PI / 2.0, -PI / 2.0 + TAU * left, 48, ring_color, RING_WIDTH, true)
+	if _is_turn:
+		# The turn clock: a full ring that empties clockwise, turning red near the end
+		var ring_radius := radius + RING_WIDTH / 2.0 + 2.0
+		var left := Game.turn_fraction()
+		_avatar.draw_arc(center, ring_radius, 0.0, TAU, 48, Color(1, 1, 1, 0.22), RING_WIDTH, true)
+		var ring_color := Color("ffca28") if left > 0.34 else Color("ff5252")
+		if left > 0.0:
+			_avatar.draw_arc(center, ring_radius, -PI / 2.0, -PI / 2.0 + TAU * left, 48, ring_color, RING_WIDTH, true)
+
+	if _joker_seen and _dot_grow > 0.0:
+		# Close Joker: a green dot at the lower right, over the ring, like an "online" light
+		var dot := center + Vector2(radius, radius) * 0.72
+		var dot_radius := maxf(radius * 0.3, 6.0) * _dot_grow
+		_avatar.draw_circle(dot, dot_radius + 2.5, Color("0b2e17"), true, -1.0, true)
+		_avatar.draw_circle(dot, dot_radius, JOKER_SEEN_COLOR, true, -1.0, true)
+
+
+func _grow_dot(amount: float) -> void:
+	_dot_grow = amount
+	_avatar.queue_redraw()

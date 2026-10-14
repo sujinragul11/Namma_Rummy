@@ -8,28 +8,34 @@ class Game {
     maxPlayers = 2,
     createdBy,
     currentPlayers = 0,
-    entryFee = 0
+    entryFee = 0,
+    isPrivate = false
   }) {
     const gameId = uuidv4();
     const result = await db.query(
-      `INSERT INTO games (id, room_code, game_type, max_players, created_by, current_players)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO games (id, room_code, game_type, max_players, created_by, current_players, is_private)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [gameId, roomCode, gameType, maxPlayers, createdBy, currentPlayers]
+      [gameId, roomCode, gameType, maxPlayers, createdBy, currentPlayers, isPrivate]
     );
     return result.rows[0];
   }
 
-  // Open lobbies that can still be joined
+  // Open lobbies that anyone can join; private tables (for friends, by room code) are left out
   static async findActive() {
     const result = await db.query(
       `SELECT id, room_code, game_type, max_players, current_players, status, created_at
        FROM games
-       WHERE status = 'waiting' AND room_code IS NOT NULL
+       WHERE status = 'waiting' AND room_code IS NOT NULL AND NOT is_private
        ORDER BY created_at DESC
        LIMIT 50`
     );
     return result.rows;
+  }
+
+  // Databases created before private tables existed get the column here
+  static async ensurePrivateColumn() {
+    await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT FALSE`);
   }
 
   // Close games that were still open when the server last stopped, except the ones in

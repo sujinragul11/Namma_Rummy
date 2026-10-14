@@ -4,7 +4,7 @@ extends Button
 ## cards: a rounded box in the tile's colour with a glossy top, a few cards or faces as
 ## decoration, and the name in big letters along the bottom (on the right of a wide tile).
 
-## What the decoration shows: "points", "pool", "closed" (Close Joker) or "friends".
+## What the decoration shows: "points", "pool", "closed" (Close Joker), "deals" or "friends".
 @export var kind := "points"
 @export_multiline var title := "POINTS\nRUMMY"
 @export var color := Color("e53935")
@@ -65,6 +65,8 @@ func _make_cards() -> void:
 			faces = [{"id": "A♠", "suit": "♠", "value": "A"}, {"id": "K♥", "suit": "♥", "value": "K"}]
 		"closed":
 			faces = [{}, {"id": "JOKER", "isJoker": true}]
+		"deals":
+			faces = [{"id": "K♠", "suit": "♠", "value": "K"}, {"id": "Q♦", "suit": "♦", "value": "Q"}]
 		"friends":
 			faces = [{"id": "Q♦", "suit": "♦", "value": "Q"}]
 	for face: Dictionary in faces:
@@ -108,6 +110,10 @@ func _layout() -> void:
 		"closed":
 			_place(0, width, center + Vector2(-width * 0.42, 0.0), -12.0)
 			_place(1, width, center + Vector2(width * 0.42, width * 0.1), 10.0)
+		"deals":
+			# The cards stand behind the chips the deals are played for
+			_place(0, width * 0.9, center + Vector2(-width * 0.38, -width * 0.18), -12.0)
+			_place(1, width * 0.9, center + Vector2(width * 0.38, -width * 0.18), 12.0)
 		"friends":
 			_place(0, width, center + Vector2(width * 0.9, -width * 0.1), 14.0)
 
@@ -138,10 +144,13 @@ func _draw_back() -> void:
 			y += step
 
 
-# What lies over the cards: the pool tile's crown, the faces on the friends tile.
+# What lies over the cards: the pool tile's crown, the deals tile's chips, the faces on the
+# friends tile.
 func _draw_front() -> void:
 	if kind == "pool":
 		_draw_crown(Vector2(size.x * 0.5, size.y * 0.5), size.x * 0.46)
+	elif kind == "deals":
+		_draw_chips(Vector2(size.x * 0.5, size.y * 0.56), size.x * 0.13)
 	elif kind == "friends":
 		var radius := size.y * 0.24
 		var at := Vector2(size.x * 0.12, size.y * 0.5)
@@ -166,6 +175,22 @@ func _draw_crown(center: Vector2, width: float) -> void:
 	for spike: Vector2 in [Vector2(-w, -h * 0.35), Vector2(0.0, -h * 0.5), Vector2(w, -h * 0.35)]:
 		_front.draw_circle(center + spike, h * 0.11, Color("e53935"), true, -1.0, true)
 	_front.draw_circle(center + Vector2(0.0, h * 0.12), h * 0.14, Color("1e88e5"), true, -1.0, true)
+
+
+# Three stacks of round chips, red, gold and blue, each with a white ring.
+func _draw_chips(center: Vector2, radius: float) -> void:
+	var stacks := [[Vector2(-radius * 1.7, radius * 0.25), Color("e53935"), 3], [Vector2(radius * 1.7, radius * 0.25), Color("1e88e5"), 2], [Vector2.ZERO, Ui.GOLD, 4]]
+	for stack: Array in stacks:
+		var base: Vector2 = center + stack[0]
+		var color: Color = stack[1]
+		for level in int(stack[2]):
+			var at := base - Vector2(0.0, level * radius * 0.28)
+			var squash := Vector2(1.0, 0.42)
+			_front.draw_set_transform(at, 0.0, squash)
+			_front.draw_circle(Vector2(0.0, radius * 0.5), radius, color.darkened(0.35), true, -1.0, true)
+			_front.draw_circle(Vector2.ZERO, radius, color, true, -1.0, true)
+			_front.draw_arc(Vector2.ZERO, radius * 0.68, 0.0, TAU, 32, Color(1, 1, 1, 0.85), radius * 0.16, true)
+			_front.draw_set_transform(Vector2.ZERO)
 
 
 func _draw_face(center: Vector2, radius: float, fill: Color, letter: String) -> void:

@@ -149,6 +149,9 @@ func _run() -> void:
 	else:
 		await _play_close_joker(a, b)
 
+	# ---------- a private table: for friends, by room code only ----------
+	await _private_table(a, b)
+
 	print("\nclient end-to-end: %d passed, %d failed" % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -266,6 +269,29 @@ func _play_close_joker(a: GameClient, b: GameClient) -> void:
 	_check("close joker: scored as pool, a first drop costs 20", int(_seat(a, b.player_id).get("totalScore", -1)) == 20)
 	await a.leave()
 	await b.leave()
+
+
+func _private_table(a: GameClient, b: GameClient) -> void:
+	var r: Dictionary = await a.create_game("points", 3, 0, true)
+	var room := str(r.get("roomCode", ""))
+	_check("private: the table is created with a room code", r.ok and room.length() == 6 and await _until(func() -> bool: return a.status() == "waiting"), str(r))
+	_check("private: the state says it is private", a.state.get("private") == true, str(a.state.get("private")))
+	var listed: Dictionary = await b._http(HTTPClient.METHOD_GET, "/api/games/active")
+	var codes: Array = (listed.data.get("games", []) as Array).map(func(game: Dictionary) -> String: return str(game.get("room_code")))
+	_check("private: it is not among the open tables", listed.ok and not codes.has(room), str(codes.size()))
+	var by_id: Dictionary = await b.socket.request("joinGame", {"gameId": str(r.get("gameId", ""))})
+	_check("private: it cannot be joined without the code", not by_id.get("ok", false) and str(by_id.get("error", "")).contains("private table") and b.state.is_empty(), str(by_id))
+	r = await b.join_by_code(room.to_lower())
+	_check("private: a friend with the code sits down", r.ok and await _until(func() -> bool: return a.players().size() == 2 and b.state.get("private") == true), str(r))
+	await b.leave()
+	await a.leave()
+
+	r = await a.create_game("points", 2)
+	room = str(r.get("roomCode", ""))
+	listed = await b._http(HTTPClient.METHOD_GET, "/api/games/active")
+	codes = (listed.data.get("games", []) as Array).map(func(game: Dictionary) -> String: return str(game.get("room_code")))
+	_check("an ordinary table is listed and not private", codes.has(room) and a.state.get("private") == false, str(a.state.get("private")))
+	await a.leave()
 
 
 func _new_client() -> GameClient:

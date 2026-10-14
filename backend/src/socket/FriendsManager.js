@@ -169,8 +169,10 @@ class FriendsManager {
         roomCode: gameEngine.roomCode,
         poolLimit: gameEngine.rules.poolLimit,
         closedJoker: gameEngine.rules.closedJoker,
+        deals: gameEngine.rules.deals, // Deals Rummy: how many deals, otherwise null
         maxPlayers: gameEngine.maxPlayers,
         stake: gameEngine.stake || 0, // the coins it costs to sit down
+        pointValue: gameEngine.pointValue || 0, // Points Rummy for coins a point; the stake is then only held
         again: Boolean(tableMate), // they have just played together
       });
       return { username: friend.username };

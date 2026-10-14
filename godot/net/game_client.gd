@@ -16,14 +16,22 @@ signal action_failed(message: String)
 signal friends_changed
 signal coins_changed
 signal profile_changed
-## A friend calls us to their table: {"username", "roomCode", "poolLimit", "closedJoker", "maxPlayers"}.
+## A friend calls us to their table: {"username", "roomCode", "poolLimit", "closedJoker",
+## "deals", "maxPlayers", "stake", "pointValue"}.
 signal invite_received(invite: Dictionary)
+## "Play Now": a search for players began, moved on (see match_status) or ended.
+signal match_changed
 
 const HTTP_TIMEOUT := 10.0
 ## What the server answers to a move when it no longer has the table we are sitting at.
 const GAME_GONE_ERROR := "Game not found"
-## What a table can cost to sit at, in coins; 0 is a free table. The server has the same list.
-const STAKES := [0, 1000, 2000, 5000, 10000, 25000, 50000]
+## What a Pool or Deals table can cost to sit at, in coins; 0 is a free table. The server has
+## the same list.
+const STAKES := [0, 500, 1000, 2000, 5000, 10000, 25000, 50000]
+## Points Rummy is played for so many coins a point: every loser pays the winner their points
+## times that. Sitting down holds what MAX_POINTS points cost, and what is not lost comes back.
+const POINT_VALUES := [0, 5, 10, 20, 50, 100, 200, 500]
+const MAX_POINTS := 80
 
 ## Tests set this to false so their throwaway logins are not saved.
 var remember_login := true
@@ -57,6 +65,16 @@ var recent_players: Array = []
 ## Our account as the server has it, with the games counted: {"username", "email", "phone",
 ## "coins", "totalGames", "gamesWon", "winPercentage", "created_at"}. Empty until fetched.
 var profile: Dictionary = {}
+## "Play Now": the table we are looking for players for, as sent to the server; empty when
+## not searching.
+var match_search: Dictionary = {}
+## Where the search stands, as the server last told it: {"found", "needed", "inQueue",
+## "scope" ("region", "nearby" or "everywhere"), "region" (e.g. "UTC+5:30")}. Empty until then.
+var match_status: Dictionary = {}
+## When the search began, and when a table found with free seats starts anyway
+## (Time.get_ticks_msec() values; match_starts_at is 0 while there is no such table yet).
+var match_since := 0
+var match_starts_at := 0
 var socket: SocketIOClient
 ## True while a request is on its way to the server.
 var busy: bool:
@@ -119,6 +137,7 @@ func login(identifier: String, password: String) -> Dictionary:
 
 
 func logout() -> void:
+	_stop_search()
 	socket.close()
 	token = ""
 	user = {}
@@ -180,31 +199,60 @@ func is_my_turn() -> bool:
 	return status() == "playing" and state.get("currentPlayer") == player_id
 
 
-## The coins each player paid to sit at this table; 0 at a free table.
+## The coins each player paid to sit at this table; 0 at a free table. At a Points table
+## played for a value a point, this is what is held while playing (see point_value).
 func stake() -> int:
 	return int(state.get("stake", 0))
 
 
-## What the winner of this table takes: everything that was paid in.
+## Coins a point at a Points table; 0 when the table is free or the winner takes the pot.
+func point_value() -> int:
+	return int(state.get("pointValue", 0))
+
+
+## What the winner of this table takes: everything that was paid in. 0 at a Points table
+## played for a value a point, where each loser pays the winner their own points.
 func pot() -> int:
 	return int(state.get("pot", 0))
 
 
-## True for the games played round after round up to a points limit (Pool 101, Close Joker).
+## True for the games played round after round up to a points limit (Pool 101, Pool 201,
+## Close Joker).
 func is_pool() -> bool:
 	return state.get("poolLimit") != null
 
 
+## Deals Rummy: how many deals are played; 0 in any other game.
+func deals() -> int:
+	var count: Variant = state.get("deals")
+	return 0 if count == null else int(count)
+
+
 ## What is being played, e.g. "Pool 101".
 func game_name() -> String:
-	return name_of_game(state.get("poolLimit"), state.get("closedJoker", false))
+	return name_of_game(state.get("poolLimit"), state.get("closedJoker", false), state.get("deals"))
 
 
-## What a game with these rules is called. `pool_limit` is null for a Points game.
-func name_of_game(pool_limit: Variant, closed_joker: bool) -> String:
+## What a game with these rules is called. `pool_limit` is null for a Points game, `deals`
+## null or 0 unless it is a Deals game.
+func name_of_game(pool_limit: Variant, closed_joker: bool, deal_count: Variant = null) -> String:
+	if deal_count != null and int(deal_count) > 0:
+		return "%d-Deal" % int(deal_count)
 	if pool_limit == null:
 		return "Points"
 	return ("Close Joker %d" if closed_joker else "Pool %d") % int(pool_limit)
+
+
+## The table described for a request. `stake` is the entry each player pays to sit down (one
+## of STAKES), which the winner takes. A Points table can instead be played for `point_value`
+## coins a point (one of POINT_VALUES; -1 for none), and `stake` is then not used.
+static func table_request(game_type: String, max_players: int, stake: int, point_value: int = -1) -> Dictionary:
+	var request := {"gameType": game_type, "maxPlayers": max_players}
+	if game_type == "points" and point_value >= 0:
+		request["pointValue"] = point_value
+	else:
+		request["stake"] = stake
+	return request
 
 
 ## Close Joker: true while this round's joker still lies face down for us. It opens once our
@@ -264,8 +312,49 @@ func turn_fraction() -> float:
 # ---------- actions ----------
 
 ## `stake` is what each player pays to sit down, one of STAKES; the winner takes it all.
-func create_game(game_type: String = "points", max_players: int = 2, stake: int = 0) -> Dictionary:
-	return await _ask("createGame", {"gameType": game_type, "maxPlayers": max_players, "stake": stake})
+## `point_value` plays a Points table for coins a point instead (see table_request).
+## A private table (`is_private`) is for the player's own friends: it is never listed, and
+## only someone with its room code can sit down.
+func create_game(game_type: String = "points", max_players: int = 2, stake: int = 0, is_private: bool = false, point_value: int = -1) -> Dictionary:
+	var request := table_request(game_type, max_players, stake, point_value)
+	request["private"] = is_private
+	return await _ask("createGame", request)
+
+
+## "Play Now": asks the server to find players who want the same table, the ones in our own
+## region (time zone) first, with no room code. The search runs until the server seats us,
+## which brings the table's state, or until cancel_match(). Follow it through match_changed.
+func find_match(game_type: String, max_players: int, stake: int, point_value: int = -1) -> Dictionary:
+	match_search = table_request(game_type, max_players, stake, point_value)
+	match_search["timezone"] = time_zone_minutes()
+	match_status = {}
+	match_since = Time.get_ticks_msec()
+	match_starts_at = 0
+	match_changed.emit()
+	var response: Dictionary = await _ask("findMatch", match_search)
+	if not response.get("ok", false):
+		_stop_search()
+	elif searching() and match_status.is_empty():
+		match_status = {"found": 1, "needed": max_players, "scope": "region", "region": str(response.get("region", ""))}
+		match_changed.emit()
+	return response
+
+
+func cancel_match() -> void:
+	if not searching():
+		return
+	_stop_search()
+	if is_online():
+		await socket.request("cancelMatch")
+
+
+func searching() -> bool:
+	return not match_search.is_empty()
+
+
+## The phone's time zone in minutes east of UTC (330 in India). The server matches players by it.
+static func time_zone_minutes() -> int:
+	return int(Time.get_time_zone_from_system().get("bias", 0))
 
 
 func join_by_code(room_code: String) -> Dictionary:
@@ -412,7 +501,9 @@ func play_again() -> Dictionary:
 	for player: Dictionary in players():
 		if player.get("id") != player_id:
 			others.append(player.get("id"))
-	var response: Dictionary = await create_game(str(state.get("gameType", "points")), int(state.get("maxPlayers", 2)), stake())
+	var game_type := str(state.get("gameType", "points"))
+	var per_point := point_value() if point_value() > 0 else -1
+	var response: Dictionary = await create_game(game_type, int(state.get("maxPlayers", 2)), stake(), state.get("private", false), per_point)
 	if response.get("ok", false):
 		for id: Variant in others:
 			# Not through _ask: a player who has gone offline or already sits at another table
@@ -525,6 +616,9 @@ func _on_connected() -> void:
 	# exists we must hear it now, not when the next move is refused.
 	if status() in ["waiting", "playing", "round_over"]:
 		resync()
+	# A search ends when the connection drops; it goes on from where it was
+	if searching():
+		socket.request("findMatch", match_search)
 
 
 # The server no longer has the table we are sitting at, so nothing can be played there any
@@ -575,11 +669,26 @@ func _on_event(event_name: String, payload: Variant) -> void:
 			_apply_friends(payload)
 		"gameInvite":
 			invite_received.emit(payload)
+		"matchStatus":
+			if searching():
+				match_status = payload
+				var starts_in: Variant = payload.get("startsIn")
+				match_starts_at = Time.get_ticks_msec() + int(starts_in) if starts_in != null else 0
+				match_changed.emit()
+		"matchFound":
+			# The table's state follows at once and takes us to it
+			_stop_search()
+		"matchFailed":
+			_stop_search()
+			action_failed.emit(str(payload.get("message", "No table could be found")))
 
 
 # The server sends the whole table after every change, with only our own hand in it.
 # It also sends it when we (re)connect and are still seated in a game.
 func _apply_state(new_state: Dictionary) -> void:
+	# Seated at a table, whichever way we came to it: no more searching
+	if searching() and new_state.get("status") in ["waiting", "playing", "round_over"]:
+		_stop_search()
 	var is_new_deal: bool = (
 		state.is_empty()
 		or state.get("gameId") != new_state.get("gameId")
@@ -663,6 +772,16 @@ func _reconcile_groups(previous: Array, new_state: Dictionary, is_new_deal: bool
 
 func _send_groups() -> void:
 	socket.send_event("arrangeHand", {"groups": groups})
+
+
+func _stop_search() -> void:
+	if not searching():
+		return
+	match_search = {}
+	match_status = {}
+	match_since = 0
+	match_starts_at = 0
+	match_changed.emit()
 
 
 func _forget_game() -> void:

@@ -7,6 +7,7 @@ const Coins = require('../models/Coins');
 const db = require('../database/db');
 const config = require('../config');
 const { FriendsManager, WatchedMap } = require('./FriendsManager');
+const Matchmaker = require('./Matchmaker');
 
 const GAME_TTL_SECONDS = 86400; // 24 hours
 const CLEANUP_DELAY_MS = 300000; // 5 minutes
@@ -18,6 +19,11 @@ class SocketManager {
     this.io = io;
     this.games = new Map(); // gameId -> GameEngine instance
     this.friends = new FriendsManager(this);
+    // "Play Now": players looking for a table, seated together without a room code
+    this.matchmaker = new Matchmaker({
+      onMatch: (tickets) => this.startMatchedGame(tickets),
+      notify: (userId, event, payload) => this.io.to(this.userRoom(userId)).emit(event, payload)
+    });
     // userId -> gameId. Friends are told whenever a player sits down or gets up
     this.userGames = new WatchedMap((userId) => this.friends.presenceChanged(userId));
     this.timers = new Map(); // gameId -> turn clock or next-round countdown
@@ -88,6 +94,7 @@ class SocketManager {
     const restored = [];
     try {
       await Game.ensureSnapshotColumn();
+      await Game.ensurePrivateColumn();
       this.snapshots = true;
 
       for (const row of await Game.findResumable()) {
@@ -95,7 +102,7 @@ class SocketManager {
           const gameEngine = GameEngine.fromJSON(row.snapshot);
           if (gameEngine.status === 'finished') {
             // It ended in the very moment the server stopped: see that its pot was paid
-            if (gameEngine.winner) await Coins.payWinner(gameEngine.gameId, gameEngine.winner);
+            if (gameEngine.winner) await this.payPot(gameEngine, gameEngine.winner);
             await Game.updateGameState(gameEngine.gameId, { status: 'finished', ended_at: new Date() });
             continue;
           }
@@ -165,6 +172,17 @@ class SocketManager {
       return;
     }
     try {
+      if (gameEngine.pointValue) {
+        // Points for coins: each loser pays what their points cost, the rest goes back
+        const losses = {};
+        for (const result of (gameEngine.lastResult && gameEngine.lastResult.players) || []) {
+          if (result.coins < 0) losses[result.id] = -result.coins;
+        }
+        for (const { userId, balance } of await Coins.settle(gameEngine.gameId, winnerId, losses)) {
+          this.sendCoins(userId, balance);
+        }
+        return;
+      }
       const { pot, balance } = await Coins.payWinner(gameEngine.gameId, winnerId);
       if (pot > 0) this.sendCoins(winnerId, balance);
     } catch (error) {
@@ -269,37 +287,17 @@ class SocketManager {
 
       // Create new game
       handle('createGame', async (data) => {
-        const { gameType = 'points' } = data;
-        const maxPlayers = parseInt(data.maxPlayers, 10) || 2;
-
-        if (!GameEngine.isGameType(gameType)) {
-          throw new Error('Invalid game type');
-        }
-        if (maxPlayers < 2 || maxPlayers > 6) {
-          throw new Error('A game needs 2 to 6 players');
-        }
-        // What each player pays to sit down; 0 or nothing is a free table
-        const stake = parseInt(data.stake, 10) || 0;
-        if (!Coins.isStake(stake)) {
-          throw new Error('There is no table with that entry');
-        }
+        const options = this.tableOptions(data);
+        // A private table, for playing with friends: joinable with its room code only
+        const isPrivate = data.private === true;
 
         const previousGame = this.requireFreeFor(userId, null);
-        if (stake > 0 && (await Coins.balance(userId)) < stake) {
-          throw new Error(`You need ${Coins.format(stake)} coins to open this table`);
+        if (options.stake > 0 && (await Coins.balance(userId)) < options.stake) {
+          throw new Error(`You need ${Coins.format(options.stake)} coins to open this table`);
         }
+        this.matchmaker.cancel(userId); // opening a table of one's own ends a search
 
-        // Create in database; its id is the gameId everywhere
-        const gameRow = await this.createGameRow({
-          gameType,
-          maxPlayers,
-          createdBy: Number(userId),
-          currentPlayers: 1
-        });
-        const gameEngine = new GameEngine(gameRow.id, gameType, maxPlayers, gameRow.room_code);
-        gameEngine.stake = stake;
-        this.games.set(gameRow.id, gameEngine);
-
+        const gameEngine = await this.createTable(options, userId, isPrivate);
         try {
           await this.payEntry(gameEngine, userId);
         } catch (error) {
@@ -313,12 +311,38 @@ class SocketManager {
 
         // Add creator as first player
         gameEngine.addPlayer(userId, this.displayName(socket, data.username));
-        this.userGames.set(userId, gameRow.id);
+        this.userGames.set(userId, gameEngine.gameId);
 
-        console.log(`🎮 Game created: ${gameRow.id} (room ${gameRow.room_code}) by ${socket.data.username}`);
+        console.log(`🎮 Game created: ${gameEngine.gameId} (room ${gameEngine.roomCode}) by ${socket.data.username}`);
 
         await this.afterMove(gameEngine);
-        return { gameId: gameRow.id, roomCode: gameRow.room_code, status: gameEngine.status };
+        return { gameId: gameEngine.gameId, roomCode: gameEngine.roomCode, status: gameEngine.status };
+      });
+
+      // "Play Now": look for players who want the same table, nearest region first.
+      // The search goes on until the server seats the player (matchFound and the table's
+      // gameState follow), the player cancels it, or the connection drops.
+      handle('findMatch', async (data) => {
+        const options = this.tableOptions(data);
+        const current = this.getUserGame(userId);
+        if (current && current.status !== 'waiting') {
+          throw new Error(`You are already in a game (room ${current.roomCode}). Finish or leave it first.`);
+        }
+        if (options.stake > 0 && (await Coins.balance(userId)) < options.stake) {
+          throw new Error(`You need ${Coins.format(options.stake)} coins for this table`);
+        }
+        // Someone waiting at a table of their own gets up from it to search
+        if (current) await this.removeFromGame(current, userId);
+
+        // The phone's time zone, in minutes east of UTC, says which region the player is in
+        const zone = Number(data.timezone);
+        const offset = Number.isInteger(zone) && zone >= -720 && zone <= 840 ? zone : null;
+        this.matchmaker.find(userId, this.displayName(socket, data.username), { ...options, offset });
+        return { searching: true, region: Matchmaker.regionLabel(offset) };
+      });
+
+      handle('cancelMatch', async () => {
+        return { cancelled: this.matchmaker.cancel(userId) };
       });
 
       // Join a game by roomCode (backend resolves real gameId)
@@ -334,7 +358,7 @@ class SocketManager {
 
       // Player joins a game room by backend-generated gameId
       handle('joinGame', async (data) => {
-        return this.joinGame(socket, data.gameId, data.username);
+        return this.joinGame(socket, data.gameId, data.username, { byId: true });
       });
 
       // Host starts before the table is full
@@ -434,6 +458,8 @@ class SocketManager {
         if (remaining && remaining.size > 0) return;
 
         this.friends.presenceChanged(userId); // friends see the player go offline
+        // Nobody is matched with a player who is not there
+        this.matchmaker.cancel(userId);
 
         const gameEngine = this.getUserGame(userId);
         if (!gameEngine) return;
@@ -486,6 +512,96 @@ class SocketManager {
       }
     }
     throw new Error('Could not allocate a room code');
+  }
+
+  // The table asked for in a createGame or findMatch, checked:
+  // { gameType, maxPlayers, stake, pointValue }. Points Rummy can be played for a value a
+  // point (data.pointValue, one of Coins.POINT_VALUES; the stake is then what 80 points
+  // cost); every other table has an entry (data.stake, one of Coins.STAKES).
+  tableOptions(data) {
+    const gameType = data.gameType || 'points';
+    if (!GameEngine.isGameType(gameType)) {
+      throw new Error('Invalid game type');
+    }
+    const maxPlayers = parseInt(data.maxPlayers, 10) || 2;
+    if (maxPlayers < 2 || maxPlayers > 6) {
+      throw new Error('A game needs 2 to 6 players');
+    }
+
+    if (gameType === 'points' && data.pointValue !== undefined) {
+      const pointValue = parseInt(data.pointValue, 10) || 0;
+      if (!Coins.isPointValue(pointValue)) {
+        throw new Error('There is no table with that point value');
+      }
+      return { gameType, maxPlayers, stake: Coins.pointsEntry(pointValue), pointValue };
+    }
+
+    // What each player pays to sit down; 0 or nothing is a free table
+    const stake = parseInt(data.stake, 10) || 0;
+    if (!Coins.isStake(stake)) {
+      throw new Error('There is no table with that entry');
+    }
+    return { gameType, maxPlayers, stake, pointValue: 0 };
+  }
+
+  // A new, empty table: in the database (its id is the gameId everywhere) and in memory
+  async createTable({ gameType, maxPlayers, stake, pointValue }, createdBy, isPrivate) {
+    const gameRow = await this.createGameRow({
+      gameType,
+      maxPlayers,
+      createdBy: Number(createdBy),
+      currentPlayers: 1,
+      isPrivate
+    });
+    const gameEngine = new GameEngine(gameRow.id, gameType, maxPlayers, gameRow.room_code);
+    gameEngine.stake = stake;
+    gameEngine.pointValue = pointValue;
+    gameEngine.isPrivate = isPrivate;
+    this.games.set(gameRow.id, gameEngine);
+    return gameEngine;
+  }
+
+  // The matchmaker has found players for a table: open it, take everyone's entry, deal.
+  // Resolves to the players who should search on because the table could not start.
+  async startMatchedGame(tickets) {
+    const [first] = tickets;
+    const gameEngine = await this.createTable(first, first.userId, false);
+    const seated = [];
+    for (const ticket of tickets) {
+      if (ticket.cancelled) continue;
+      const current = this.getUserGame(ticket.userId);
+      if (current && current.status !== 'waiting') continue; // sat down to play elsewhere meanwhile
+      try {
+        await this.payEntry(gameEngine, ticket.userId);
+      } catch (error) {
+        this.io.to(this.userRoom(ticket.userId)).emit('matchFailed', { message: error.message });
+        continue;
+      }
+      if (current) await this.removeFromGame(current, ticket.userId);
+      gameEngine.addPlayer(ticket.userId, ticket.username);
+      this.userGames.set(ticket.userId, gameEngine.gameId);
+      seated.push(ticket);
+    }
+
+    if (seated.length < 2) {
+      // Not enough left to play: give the entries back before they search again
+      await this.refundEveryone(gameEngine);
+      this.deleteGame(gameEngine, 'abandoned');
+      return seated;
+    }
+
+    if (gameEngine.status === 'waiting') gameEngine.startGame(); // not every seat was filled
+    this.markStarted(gameEngine);
+    console.log(`🎯 Matched ${seated.length} players: ${gameEngine.gameId} (${gameEngine.gameType})`);
+    for (const ticket of seated) {
+      this.io.to(this.userRoom(ticket.userId)).emit('matchFound', {
+        gameId: gameEngine.gameId,
+        roomCode: gameEngine.roomCode,
+        players: seated.length
+      });
+    }
+    await this.afterMove(gameEngine);
+    return [];
   }
 
   // The game a user is currently seated in, if it still exists
@@ -545,12 +661,17 @@ class SocketManager {
     return gameEngine || null;
   }
 
-  async joinGame(socket, gameId, requestedName) {
+  // `byId`: asked for by the game's id rather than its room code. A private table only takes
+  // new players who give its code; its own players can come back either way.
+  async joinGame(socket, gameId, requestedName, { byId = false } = {}) {
     const { userId } = socket.data;
 
     const gameEngine = await this.loadGame(gameId);
     if (!gameEngine || gameEngine.status === 'finished') {
       throw new Error('Game is no longer available');
+    }
+    if (byId && gameEngine.isPrivate && !gameEngine.players.has(userId)) {
+      throw new Error('This is a private table: ask your friend for its room code');
     }
 
     const previousGame = this.requireFreeFor(userId, gameId);
@@ -580,6 +701,7 @@ class SocketManager {
 
     // Track player
     this.userGames.set(userId, gameId);
+    this.matchmaker.cancel(userId); // e.g. an invitation accepted while searching
     this.cancelCleanup(gameId);
 
     if (isNewPlayer) {

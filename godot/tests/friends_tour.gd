@@ -52,7 +52,7 @@ func _run() -> void:
 	_check("the menu has a Friends button", _shown("FriendsButton") and _node("FriendsButton").text == "Friends", _text("FriendsButton"))
 	_check("the bottom bar is on screen", _on_screen("PrivacyButton") and _on_screen("TermsButton") and _on_screen("LogoutButton"))
 	_check("the bars hold Profile, Logout and How to play", _on_screen("ProfileButton") and _on_screen("LogoutButton") and _on_screen("HelpButton"))
-	_check("the four tiles are on screen", _on_screen("PointsTile") and _on_screen("PoolTile") and _on_screen("CloseJokerTile") and _on_screen("FriendsTile"))
+	_check("the four tiles are on screen", _on_screen("PointsTile") and _on_screen("PoolTile") and _on_screen("DealsTile") and _on_screen("FriendsTile"))
 
 	# ---------- the boxes the tiles open ----------
 	await _press("PoolTile")
@@ -69,6 +69,26 @@ func _run() -> void:
 	get_tree().root.propagate_notification(NOTIFICATION_WM_GO_BACK_REQUEST)
 	await _wait(0.2)
 	_check("the back button closes it", not _shown("CodeEdit") and not question_box.visible)
+
+	# ---------- a private table, from the friends tile ----------
+	await _press("FriendsTile")
+	await _wait(0.4)
+	await _press("CreateTableButton")
+	await _wait(0.4)
+	_check("Create table opens the setup for a private table", _shown("CreateButton") and _text("CreateButton") == "Create Table" and not _shown("CodeEdit"), _text("CreateButton"))
+	_check("its tabs offer the game modes", _shown("ModeTabs") and (_node("ModeTabs") as Control).get_child_count() >= 2 and _text("SetupTitle") == "Points Rummy", _text("SetupTitle"))
+	(_node("StakeSlider") as HSlider).value = 0  # a free table, so the balance stays as it is
+	await _press("CreateButton")
+	_check("the private table opens in the lobby", await _until(func() -> bool: return _has("CodeLabel") and _text("CodeLabel").length() == 6))
+	_check("it is private, and the lobby says so", Game.state.get("private") == true and _text("InfoLabel").contains("Private table"), _text("InfoLabel"))
+	Game.leave()
+	_check("and leaving it goes back to the menu", await _until(func() -> bool: return _has("MenuPanel") and _shown("MenuPanel")))
+	await _wait(0.3)
+	await _press("PointsTile")
+	await _wait(0.4)
+	_check("a game tile's setup plays an ordinary table", _text("CreateButton") == "Play Now", _text("CreateButton"))
+	await _press("SetupCloseButton")
+	await _wait(0.2)
 	await _press("HelpButton")
 	await _wait(0.4)
 	_check("the ? opens the rules", _shown("RulesText") and _text("RulesText").contains("pure"))
@@ -140,8 +160,7 @@ func _run() -> void:
 	_check("a tap beside the list closes it", not _has("Rows"))
 
 	# ---------- inviting from the lobby ----------
-	await _press("PointsTile")
-	await _wait(0.4)
+	await _open_private_table()  # a lobby with a room code (Play Now would search instead)
 	await _press("CreateButton")
 	_check("the lobby opens", await _until(func() -> bool: return _has("CodeLabel") and _node("CodeLabel").text.length() == 6))
 	var room: String = _node("CodeLabel").text
@@ -211,8 +230,7 @@ func _run() -> void:
 	await _until(func() -> bool: return c.is_online())
 	var invites_to_c: Array = []
 	c.invite_received.connect(func(invite: Dictionary) -> void: invites_to_c.append(invite))
-	await _press("PointsTile")
-	await _wait(0.4)
+	await _open_private_table()  # a lobby with a room code (Play Now would search instead)
 	await _press("CreateButton")
 	_check("a second lobby opens", await _until(func() -> bool: return _has("CodeLabel") and _node("CodeLabel").text.length() == 6))
 	var first_table: String = _node("CodeLabel").text
@@ -409,6 +427,14 @@ func _tap(at: Vector2) -> void:
 
 func _middle(control: Control) -> Vector2:
 	return control.get_global_transform_with_canvas() * (control.size / 2.0)
+
+
+# Play with Friends > Create Table: the setup box for a private table.
+func _open_private_table() -> void:
+	await _press("FriendsTile")
+	await _wait(0.4)
+	await _press("CreateTableButton")
+	await _wait(0.4)
 
 
 ## Taps a button of the screen. A button a finger cannot reach fails the tour.

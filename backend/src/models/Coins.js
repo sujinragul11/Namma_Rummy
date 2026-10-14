@@ -1,11 +1,17 @@
 const db = require('../database/db');
 
 // Play coins. Every account starts with STARTING_COINS. Sitting down at a table costs its
-// entry, and whoever wins the game takes everything that was paid in. Coins are play money:
+// entry, and whoever wins the game takes everything that was paid in (at a Points table,
+// what the others lost on their points; see settle). Coins are play money:
 // nothing here sells them or pays them out.
 const STARTING_COINS = 50000;
-// What a table can cost to sit at; 0 is a free table
-const STAKES = [0, 1000, 2000, 5000, 10000, 25000, 50000];
+// What a Pool or Deals table can cost to sit at; 0 is a free table
+const STAKES = [0, 500, 1000, 2000, 5000, 10000, 25000, 50000];
+// Points rummy is played for so many coins a point instead: each loser pays the winner their
+// points times that value. Sitting down holds what the worst hand can cost (MAX_POINTS points)
+// and the game gives back whatever was not lost.
+const POINT_VALUES = [0, 5, 10, 20, 50, 100, 200, 500];
+const MAX_POINTS = 80; // a hand never counts more (see Validator)
 
 // 125000 -> "1,25,000": the way amounts are written in India
 const format = (amount) => Number(amount).toLocaleString('en-IN');
@@ -13,6 +19,15 @@ const format = (amount) => Number(amount).toLocaleString('en-IN');
 class Coins {
   static isStake(value) {
     return STAKES.includes(value);
+  }
+
+  static isPointValue(value) {
+    return POINT_VALUES.includes(value);
+  }
+
+  // What sitting at a Points table holds back
+  static pointsEntry(pointValue) {
+    return pointValue * MAX_POINTS;
   }
 
   // Databases made before coins existed get what coins need here; the server calls it at startup
@@ -98,6 +113,40 @@ class Coins {
     });
   }
 
+  // A Points game is over: each player gets back what they held minus what they lost, and the
+  // winner also takes everything the others lost. `losses` maps a user id to coins lost.
+  // Returns [{ userId, balance }] for the players who got something; a second call finds
+  // nothing left to settle.
+  static async settle(gameId, winnerId, losses) {
+    return Coins.transaction(async (client) => {
+      const entries = await client.query(
+        `DELETE FROM game_entries WHERE game_id = $1 RETURNING user_id, amount`,
+        [gameId]
+      );
+      const paid = [];
+      let won = 0;
+      let winnerEntry = 0;
+      for (const entry of entries.rows) {
+        const userId = entry.user_id === null ? null : String(entry.user_id);
+        if (userId === winnerId) {
+          winnerEntry = entry.amount;
+          continue;
+        }
+        // An account deleted during the game cannot be paid back: its whole entry is lost
+        const loss = userId === null ? entry.amount : Math.min(entry.amount, Math.max(0, Number(losses[userId]) || 0));
+        won += loss;
+        if (userId === null || entry.amount - loss <= 0) continue;
+        const balance = await Coins.move(client, userId, gameId, 'refund', entry.amount - loss);
+        if (balance !== null) paid.push({ userId, balance });
+      }
+      if (winnerId && winnerEntry + won > 0) {
+        const balance = await Coins.move(client, winnerId, gameId, 'win', winnerEntry + won);
+        if (balance !== null) paid.push({ userId: winnerId, balance });
+      }
+      return paid;
+    });
+  }
+
   // The game ended without a winner: everyone gets their own entry back.
   // Returns [{ userId, balance }] for the players who got something.
   static async refundAll(gameId) {
@@ -170,6 +219,8 @@ class Coins {
 
 Coins.STARTING_COINS = STARTING_COINS;
 Coins.STAKES = STAKES;
+Coins.POINT_VALUES = POINT_VALUES;
+Coins.MAX_POINTS = MAX_POINTS;
 Coins.format = format;
 
 module.exports = Coins;

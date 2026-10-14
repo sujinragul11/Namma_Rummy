@@ -110,6 +110,9 @@ const createTables = async () => {
     // The server does the same at every start, so there is one place that says how
     await Coins.ensureSchema();
 
+    // Private tables, for playing with friends by room code only
+    await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT FALSE`);
+
     console.log('✅ All tables created successfully!');
 
     // Create indexes

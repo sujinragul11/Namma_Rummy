@@ -36,7 +36,7 @@ Screenshots still have to be taken from the finished game:
 
 **Short description** (Google Play, 80 characters at most)
 
-> Play 13-card rummy online with friends: Points, Pool and Close Joker. Free.
+> 13-card rummy: Points, Pool and Deals. Quick matches or play with friends.
 
 **Subtitle** (App Store, 30 characters at most)
 
@@ -50,12 +50,15 @@ Screenshots still have to be taken from the finished game:
 
 > Namma Rummy is classic 13-card rummy that you play online with your friends.
 >
-> Create a table, share the six-letter room code, and play in real time with 2 to 6 players.
+> Tap Play Now and the game finds players for you, the ones near you first: no room code
+> needed. Or open a private table, share its six-letter room code, and play with your friends.
+> Real time, 2 to 6 players.
 >
-> • Points rummy: one quick round
-> • Pool 101: play round after round until one player is left
+> • Points rummy: one quick round, played for coins a point
+> • Pool 101 and Pool 201: play round after round until one player is left
+> • Deals rummy: 2 or 3 deals for chips; the most chips win
 > • Close Joker 240: the joker stays hidden until you make a pure sequence
-> • 50,000 free play coins to start: sit at a free table, or at one with an entry from 1,000 to 50,000 coins where the winner takes the pot
+> • 50,000 free play coins to start: play at a free table, or for coins
 > • Add friends, see who is online, and invite them to your table with one tap
 > • Share your room code on WhatsApp
 > • Play again with the same players in one tap
@@ -137,8 +140,10 @@ also asks why an app needs each piece of personal data (guideline 5.1.1); be rea
 what the email and the phone number are each used for. Suggested note:
 
 > Namma Rummy is an online card game for 2 to 6 players. Log in with the demo account above.
-> To see a game, tap "Create game" on one device and join with the room code from a second
-> device or account (second demo account: USERNAME2 / PASSWORD2).
+> To see a game, tap a game, then Play Now, on two devices at about the same time, logged in
+> with the two demo accounts (second demo account: USERNAME2 / PASSWORD2): the server seats
+> them at one table. Or tap Play with Friends > Create Table on one device and join with the
+> room code from the other.
 > Accounts can be deleted in the app: main menu > Delete account.
 > Play coins are free tokens: every account starts with 50,000, they cannot be bought, sold,
 > transferred or cashed out, and there are no purchases or real-money play of any kind.

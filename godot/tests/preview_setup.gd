@@ -28,7 +28,7 @@ func _run(main: Control) -> void:
 	await _wait(0.8)
 	await _shot("menu")
 	var home: Node = main.get_node("%Screen").get_child(0)
-	for tile_name: String in ["PointsTile", "PoolTile", "CloseJokerTile"]:
+	for tile_name: String in ["PointsTile", "PoolTile", "DealsTile"]:
 		(main.find_child(tile_name, true, false) as Button).pressed.emit()
 		await _wait(0.6)
 		if tile_name == "PoolTile":
@@ -45,6 +45,23 @@ func _run(main: Control) -> void:
 	await _shot("private-table-code")
 	(Ui.get_node("MessageBox") as AcceptDialog).hide()  # "enter the room code", from the empty join
 	(main.find_child("JoinCloseButton", true, false) as Button).pressed.emit()
+	(main.find_child("FriendsTile", true, false) as Button).pressed.emit()
+	await _wait(0.3)
+	(main.find_child("CreateTableButton", true, false) as Button).pressed.emit()
+	await _wait(0.6)
+	await _shot("private-setup")
+	print("preview: the private setup's button says ", (main.find_child("CreateButton", true, false) as Button).text)
+	(main.find_child("SetupCloseButton", true, false) as Button).pressed.emit()
+	# The search box of Play Now, as it looks with three of six players found
+	Game.match_search = {"gameType": "pool_201", "maxPlayers": 6, "stake": 500}
+	Game.match_status = {"found": 3, "needed": 6, "scope": "nearby", "region": "UTC+5:30", "inQueue": 5}
+	Game.match_since = Time.get_ticks_msec() - 11000
+	Game.match_starts_at = Time.get_ticks_msec() + 9000
+	home.get("_search").call("open_for", "Pool Rummy  ·  201 Points  ·  6 players  ·  entry 500 coins")
+	await _wait(0.8)
+	await _shot("search")
+	home.get("_search").call("close")
+	await _wait(0.3)
 	(main.find_child("HelpButton", true, false) as Button).pressed.emit()
 	await _wait(0.6)
 	await _shot("rules")

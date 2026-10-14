@@ -69,8 +69,16 @@ func _refresh() -> void:
 	]
 	if state.get("closedJoker", false):
 		_info_label.text += "\nThe joker lies face down: you see it once you make a pure sequence."
+	if Game.deals() > 0:
+		_info_label.text += "\n%d deals played for chips; the most chips after the last deal win." % Game.deals()
+	if state.get("private", false):
+		_info_label.text += "\nPrivate table: only the friends you give the room code to can sit down."
 	var stake := int(state.get("stake", 0))
-	if stake > 0:
+	if Game.point_value() > 0:
+		_info_label.text += "\n%s coins a point: each loser pays the winner what their points cost (at most %s)." % [
+			Ui.coins_text(Game.point_value()), Ui.coins_text(stake)
+		]
+	elif stake > 0:
 		_info_label.text += "\nEntry: %s coins each. The winner takes the pot (%s with a full table)." % [
 			Ui.coins_text(stake), Ui.coins_text(stake * max_players)
 		]

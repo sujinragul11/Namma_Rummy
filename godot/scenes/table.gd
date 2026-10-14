@@ -249,7 +249,7 @@ func _process(_delta: float) -> void:
 	if _result_overlay.visible and Game.status() == "round_over":
 		var prefix := "You are out of the match. " if Game.me().get("eliminated", false) else ""
 		var until_deal := Game.seconds_until(Game.next_round_at)
-		_next_round_label.text = "%sNext round in %ds" % [prefix, until_deal]
+		_next_round_label.text = "%sNext %s in %ds" % [prefix, "deal" if Game.deals() > 0 else "round", until_deal]
 		if until_deal > 3:
 			_last_beep = -1
 		elif until_deal > 0 and until_deal != _last_beep:
@@ -271,13 +271,21 @@ func _refresh() -> void:
 		return  # leaving the table (the main scene is about to close this screen), or not ready
 
 	var is_pool := Game.is_pool()
+	var deals := Game.deals()
 	_room_label.text = "%s  ·  %s" % [state.get("roomCode", ""), Game.game_name()]
 	if is_pool:
 		_room_label.text += "  ·  Round %d" % int(state.get("round", 1))
-	if Game.stake() > 0:
+	elif deals > 0:
+		_room_label.text += "  ·  %s" % _deal_name(int(state.get("round", 1)))
+	if Game.point_value() > 0:
+		_room_label.text += "  ·  %s coins a point" % Ui.coins_text(Game.point_value())
+	elif Game.stake() > 0:
 		_room_label.text += "  ·  Pot %s" % Ui.coins_text(Game.pot())
-	_total_label.visible = is_pool
-	_total_label.text = "Your total: %d" % int(Game.me().get("totalScore", 0))
+	_total_label.visible = is_pool or deals > 0
+	if deals > 0:
+		_total_label.text = "Your chips: %d" % int(Game.me().get("chips", 0))
+	else:
+		_total_label.text = "Your total: %d" % int(Game.me().get("totalScore", 0))
 
 	_refresh_opponents(is_pool)
 	_refresh_piles()
@@ -324,14 +332,25 @@ func _refresh_opponents(is_pool: bool) -> void:
 				info = "Cards in" if player.get("submitted", false) else "Arranging..."
 		if is_pool:
 			info += "  ·  %d pts" % int(player.get("totalScore", 0))
+		elif Game.deals() > 0:
+			info += "  ·  %d chips" % int(player.get("chips", 0))
 		var their_turn: bool = playing and Game.state.get("currentPlayer") == id
-		badge.show_player(str(player.get("username", "Player")), info, their_turn, sitting_out)
+		badge.show_player(str(player.get("username", "Player")), info, their_turn, sitting_out, _has_seen_joker(player))
 
 	for id: String in _badges.keys():
 		if not present.has(id):
 			_badges[id].queue_free()
 			_badges.erase(id)
 	_place_opponents()
+
+
+# Close Joker: the green dot on a badge, for a player who has seen the joker while it is still
+# closed for the table. Once somebody declares it lies open for everyone and the dot goes.
+func _has_seen_joker(player: Dictionary) -> bool:
+	return (
+		Game.state.get("closedJoker", false) and Game.status() == "playing"
+		and Game.declared_by().is_empty() and player.get("seenJoker", false)
+	)
 
 
 func _refresh_piles() -> void:
@@ -470,7 +489,7 @@ func _refresh_actions() -> void:
 	var points: int = Rummy.evaluate_hand(Game.meld_cards(), Game.state.get("joker")).points
 	var me := Game.me()
 	var sitting_out: bool = me.get("eliminated", false) or me.get("status") == "dropped"
-	_my_badge.show_player(str(Game.user.get("username", "You")), "Points in hand: %d" % points, Game.is_my_turn(), sitting_out)
+	_my_badge.show_player(str(Game.user.get("username", "You")), "Points in hand: %d" % points, Game.is_my_turn(), sitting_out, _has_seen_joker(me))
 
 
 # What this update showed, kept so the next one can be compared with it.
@@ -656,6 +675,8 @@ func _sync_hand() -> void:
 func _announce_deal(deal_seconds: float) -> void:
 	if Game.is_pool():
 		Fx.banner("ROUND %d" % int(Game.state.get("round", 1)))
+	elif Game.deals() > 0:
+		Fx.banner(_deal_name(int(Game.state.get("round", 1))).to_upper())
 	else:
 		Fx.banner("GAME ON")
 	var after_deal := create_tween()
@@ -668,6 +689,14 @@ func _announce_deal(deal_seconds: float) -> void:
 		Fx.sparkle(_center_of(_joker_card), Color("ce93d8"))
 		Ui.pulse(_joker_card, 1.15)
 		Sound.play("sparkle"))
+
+
+# Deals Rummy: "Deal 1 of 2", and after the last deal "Tie-breaker" for the deal between
+# the players level on chips.
+func _deal_name(deal: int) -> String:
+	if deal > Game.deals():
+		return "Tie-breaker"
+	return "Deal %d of %d" % [deal, Game.deals()]
 
 
 # Lays the cards out group by group. Cards in a group overlap as little as the width allows.
@@ -996,10 +1025,14 @@ func _over_declare_slot(pointer: Vector2) -> bool:
 
 
 # A tap on "Declare here" declares with the selected card, like the Declare button.
+# Like a button it reacts when the finger lifts: the question it opens is not laid out yet on
+# touch-down, and the lift of the same finger could land on one of its buttons.
 func _on_declare_slot_input(event: InputEvent) -> void:
 	var click := event as InputEventMouseButton
-	if click == null or not click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
+	if click == null or click.pressed or click.button_index != MOUSE_BUTTON_LEFT:
 		return
+	if not Rect2(Vector2.ZERO, _declare_slot.size).has_point(click.position):
+		return  # the finger slid away before lifting
 	if not _can_discard():
 		return
 	if _selected.size() == 1:
@@ -1176,12 +1209,19 @@ func _refresh_result(is_pool: bool) -> void:
 		else:
 			_result_title.text = "%s won the game" % Game.player_name(winner)
 	else:
-		_result_title.text = "%s won round %d" % ["You" if i_won else Game.player_name(winner), int(result.get("round", 1))]
+		var round_name := "deal %d" % int(result.get("round", 1)) if Game.deals() > 0 else "round %d" % int(result.get("round", 1))
+		_result_title.text = "%s won %s" % ["You" if i_won else Game.player_name(winner), round_name]
 	_result_title.add_theme_color_override("font_color", WIN_TEXT if i_won else DARK_TEXT)
 
-	# The pot is paid when the whole game is over, not after a round of it
-	_prize.visible = finished and winner != null and Game.pot() > 0
-	_prize.amount = Game.pot()
+	# The pot is paid when the whole game is over, not after a round of it. At a Points table
+	# for coins a point the winner gets what the others' points cost instead.
+	var prize := Game.pot()
+	if Game.point_value() > 0:
+		for row: Dictionary in result.get("players", []):
+			if row.get("id") == winner:
+				prize = int(row.get("coins", 0))
+	_prize.visible = finished and winner != null and prize > 0
+	_prize.amount = prize
 	_prize.suffix = "coins won" if i_won else "coins go to %s" % Game.player_name(winner)
 
 	for child in _result_rows.get_children():
@@ -1236,6 +1276,12 @@ func _build_result_row(row: Dictionary, is_pool: bool) -> Control:
 	var points := "%d pts" % int(row.get("points", 0))
 	if is_pool:
 		points += "  (total %d)" % int(row.get("totalScore", 0))
+	elif row.has("chips"):
+		# Deals Rummy: the chips that changed hands, and what the player has now
+		points += "  ·  %+d chips (%d)" % [int(row.get("chipsWon", 0)), int(row.get("chips", 0))]
+	if row.has("coins"):
+		var coins := int(row.get("coins", 0))
+		points += "  ·  %s%s coins" % ["+" if coins > 0 else "", Ui.coins_text(coins)]
 	header.add_child(_text(points, 24, DARK_TEXT))
 	entry.add_child(header)
 

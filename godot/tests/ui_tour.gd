@@ -95,20 +95,20 @@ func _run() -> void:
 	_check("the menu greets the player", _node("MenuPanel").visible and _node("WelcomeLabel").text == name_a, _node("WelcomeLabel").text)
 	_check("the menu shows the connection", _node("StatusLabel").text == "Online", _node("StatusLabel").text)
 	_check("a new player has 50,000 coins, shown beside the welcome", await _until(func() -> bool: return Game.coins == 50000) and _node("CoinsLabel")._label.text == "50,000" and _node("CoinsLabel").is_visible_in_tree(), _node("CoinsLabel")._label.text)
-	_check("the table offered first is the 1,000 coin one", _node("StakeOption").get_item_text(_node("StakeOption").selected) == "1,000 coins" and _node("StakeOption").item_count == 7, _node("StakeOption").get_item_text(_node("StakeOption").selected))
+	_check("the entry offered first is the 500 coin one", _node("StakeOption").get_item_text(_node("StakeOption").selected) == "500 coins" and _node("StakeOption").item_count == 8, _node("StakeOption").get_item_text(_node("StakeOption").selected))
 	_check("the menu still fits on the screen", _node("LogoutButton").get_global_rect().end.y <= get_viewport().get_visible_rect().size.y and _node("PrivacyButton").get_global_rect().end.y <= get_viewport().get_visible_rect().size.y, "%s / %s" % [_node("LogoutButton").get_global_rect().end.y, _node("PrivacyButton").get_global_rect().end.y])
 	await _shot("menu")
 
 	# ---------- game 1: fixed deal, group cards, declare ----------
 	_set_rigged(true)
-	await _press("PointsTile")
-	await _wait(0.4)
+	await _open_private_table()
+	_check("a Points table is played for coins a point, 10 offered first", _node("StakeCoins")._label.text == "10 per point" and _node("StakeLabel").text == "SELECT POINT VALUE", _node("StakeCoins")._label.text)
 	await _press("CreateButton")
 	_check("the lobby opens", await _until(func() -> bool: return _has("CodeLabel") and _node("CodeLabel").text.length() == 6))
 	var room: String = _node("CodeLabel").text
 	await _wait(0.5)
 	_check("the lobby lists the host", _node("PlayersTitle").text == "Players (1/2)" and not _node("StartButton").visible and _node("PlayersList").get_child_count() == 1, _node("PlayersTitle").text)
-	_check("sitting down cost the entry, and the lobby says what is played for", await _until(func() -> bool: return Game.coins == 49000) and _node("InfoLabel").text.contains("Entry: 1,000 coins each. The winner takes the pot (2,000 with a full table)."), "%d | %s" % [Game.coins, _node("InfoLabel").text])
+	_check("sitting down holds what 80 points cost, and the lobby says what is played for", await _until(func() -> bool: return Game.coins == 49200) and _node("InfoLabel").text.contains("10 coins a point: each loser pays the winner what their points cost (at most 800)."), "%d | %s" % [Game.coins, _node("InfoLabel").text])
 	_check("the lobby still fits on the screen", _node("LeaveButton").get_global_rect().end.y <= get_viewport().get_visible_rect().size.y, str(_node("LeaveButton").get_global_rect().end.y))
 	await _shot("lobby")
 
@@ -129,7 +129,7 @@ func _run() -> void:
 	_check("the player is told to draw", _node("StatusLabel").text == "Your turn: draw from the deck or the open pile", _node("StatusLabel").text)
 	_check("only Sort and Drop can be used", not _node("SortButton").disabled and _node("GroupButton").disabled and _node("DiscardButton").disabled and _node("DeclareButton").disabled and not _node("DropButton").disabled)
 	_check("the room is named", _node("RoomLabel").text.begins_with(room) and _node("JokerLabel").text.contains("As wild"), _node("JokerLabel").text)
-	_check("the top bar shows the pot", _node("RoomLabel").text.ends_with("Pot 2,000") and b.coins == 49000, _node("RoomLabel").text)
+	_check("the top bar shows the value of a point", _node("RoomLabel").text.ends_with("10 coins a point") and b.coins == 49200, _node("RoomLabel").text)
 	_check("the opponent has a badge", table._badges.size() == 1)
 	_check("cards are big enough for a finger", table._card_width >= 112.0 and _node("DiscardButton").size.y >= 54.0, "card %s, button %s" % [table._card_width, _node("DiscardButton").size.y])
 	_check("the hand fits on the screen", table._spans[-1].right <= _node("HandArea").size.x and table._spans[0].left >= 0.0, "%s of %s" % [table._spans[-1].right, _node("HandArea").size.x])
@@ -239,14 +239,21 @@ func _run() -> void:
 	await _wait(0.9)
 	_check("the winner is announced", _node("ResultTitle").text == "You won!" and _node("BackButton").visible and not _node("LeaveGameButton").visible, _node("ResultTitle").text)
 	_check("both hands are listed", _node("ResultRows").get_child_count() == 2)
-	_check("the result says what was won", _node("PrizeLabel").visible and _node("PrizeLabel")._label.text == "2,000 coins won", _node("PrizeLabel")._label.text)
-	_check("the pot is paid to the winner", await _until(func() -> bool: return Game.coins == 51000 and b.coins == 49000), "%d / %d" % [Game.coins, b.coins])
+	# The loser pays their points at 10 coins each
+	var lost := 0
+	for row: Dictionary in Game.state.get("lastResult", {}).get("players", []):
+		if row.get("id") != Game.player_id:
+			lost = mini(int(row.get("points", 0)), 80) * 10
+	# (In this fixed deal the opponent's cards make a valid hand once sorted: 0 points, nothing to pay)
+	var prize_ok: bool = _node("PrizeLabel").visible and _node("PrizeLabel")._label.text == "%s coins won" % Ui.coins_text(lost) if lost > 0 else not _node("PrizeLabel").visible
+	_check("the result says what was won", prize_ok, "%d | %s" % [lost, _node("PrizeLabel")._label.text])
+	_check("the loser pays the winner their points", await _until(func() -> bool: return Game.coins == 50000 + lost and b.coins == 50000 - lost), "%d / %d" % [Game.coins, b.coins])
 	_check("the winner gets confetti", table._confetti.emitting)
 	_check("the finishing card has landed on the open pile", _node("OpenCard").card.get("id") == king and _node("FlyLayer").get_child_count() == 0, str(_node("OpenCard").card))
 	await _shot("result")
 	await _press("BackButton")
 	_check("back on the menu", await _until(func() -> bool: return _has("MenuPanel") and _node("MenuPanel").visible))
-	_check("the menu shows the new balance", _node("CoinsLabel")._label.text == "51,000", _node("CoinsLabel")._label.text)
+	_check("the menu shows the new balance", _node("CoinsLabel")._label.text == Ui.coins_text(50000 + lost), _node("CoinsLabel")._label.text)
 	await b.leave()
 
 	# ---------- game 2: pool, the opponent starts, open pile, drop ----------
@@ -330,6 +337,7 @@ func _run() -> void:
 
 	# ---------- game 3: Close Joker, the joker opens with the first pure sequence ----------
 	await _play_close_joker(b)
+	await _see_the_opponent_open_the_joker(b)
 
 	# ---------- game 4: the opponent declares; the player arranges and submits ----------
 	await _play_opponent_declares(b)
@@ -346,8 +354,7 @@ func _run() -> void:
 # arrange and hand in, and the Declare button is the one that submits.
 func _play_opponent_declares(b: GameClient) -> void:
 	var opponent := str(b.user.get("username", ""))
-	await _press("PointsTile")
-	await _wait(0.4)
+	await _open_private_table()
 	(_node("TypeOption") as OptionButton).select(0)  # a points game
 	_set_rigged(true)
 	await _press("CreateButton")
@@ -400,10 +407,9 @@ func _play_opponent_declares(b: GameClient) -> void:
 # the opponent can make no sequence at all, and the 7 of hearts is cut as the joker.
 func _play_close_joker(b: GameClient) -> void:
 	var question_box: ConfirmationDialog = Ui.get_node("QuestionBox")
-	await _press("PointsTile")
-	await _wait(0.4)
+	await _open_private_table()
 	var types: OptionButton = _node("TypeOption")
-	_check("the menu offers Close Joker", types.item_count == 3 and types.get_item_text(2) == "Close Joker 240", str(types.item_count))
+	_check("the menu offers Close Joker", types.item_count == 6 and types.get_item_text(2) == "Close Joker 240", str(types.item_count))
 	types.select(2)  # a tap would have to land inside the drop-down list
 	_set_rigged(true, "closed")
 	await _press("CreateButton")
@@ -439,6 +445,9 @@ func _see_the_joker_open(table: Variant, b: GameClient) -> void:
 	var notices: Array = Ui.get_node("Notices").get_children().map(func(panel: Node) -> String: return (panel.get_child(0) as Label).text)
 	_check("close joker: the player is told how to see it", notices.has("Make a pure sequence to see the joker"), str(notices))
 	_check("close joker: it is scored as a pool game", _node("TotalLabel").visible)
+	var my_badge: PlayerBadge = _node("MyBadge")
+	var their_badge: PlayerBadge = table._badges.values()[0]
+	_check("close joker: no green dot while nobody has seen the joker", not my_badge._joker_seen and not their_badge._joker_seen)
 	await _shot("close-joker-hidden")
 
 	# 2-3-4 of spades in a group of their own: the first life
@@ -455,6 +464,7 @@ func _see_the_joker_open(table: Variant, b: GameClient) -> void:
 	_check("close joker: the joker is face up", not joker_card.face_down and joker_card.card.get("code") == "7♥" and _node("JokerLabel").text == "Joker  ·  7s wild", _node("JokerLabel").text)
 	_check("close joker: the sequence is named under its cards", table._group_labels[0].text == "Pure sequence", table._group_labels[0].text)
 	_check("close joker: the opponent still sees nothing", b.joker_hidden() and b.state.get("joker") == null)
+	_check("close joker: the green dot is on our own badge only", my_badge._joker_seen and my_badge._dot_grow == 1.0 and not their_badge._joker_seen, "%s %s %s" % [my_badge._joker_seen, my_badge._dot_grow, their_badge._joker_seen])
 	await _shot("close-joker-open")
 
 	# A turn, then the opponent gives up the round; the next round closes the joker again
@@ -470,12 +480,58 @@ func _see_the_joker_open(table: Variant, b: GameClient) -> void:
 	_check("close joker: the round result appears", r.ok and await _until(func() -> bool: return _node("ResultOverlay").visible))
 	await _wait(1.2)
 	_check("close joker: it is a round of a longer game", _node("ResultTitle").text == "You won round 1" and _node("NextRoundLabel").text.begins_with("Next round in "), _node("ResultTitle").text)
+	_check("close joker: the green dot goes when the round ends", not my_badge._joker_seen)
 	_check("close joker: the next round is dealt", await _until(func() -> bool: return Game.status() == "playing" and int(Game.state.get("round", 0)) == 2, 16.0))
 	await _wait(2.4)
 	# Now and then a random deal holds a whole suit that is a run: then the joker opens at once
 	_check("close joker: the joker pile shows what the server sent", joker_card.face_down == Game.joker_hidden() and (_node("JokerLabel").text == "Joker  ·  hidden") == Game.joker_hidden(), _node("JokerLabel").text)
+	_check("close joker: round 2 has the green dot only if the deal opened the joker", my_badge._joker_seen == (not Game.joker_hidden()))
 	_check("close joker: round 2 is named", _node("RoomLabel").text.contains("Round 2"), _node("RoomLabel").text)
 	await _shot("close-joker-round-2")
+
+
+# Close Joker the other way round: the opponent sits first, so the CLOSED_DEAL gives them
+# 2-3-4 of spades. When they make it, their badge gets the green dot on our screen.
+func _see_the_opponent_open_the_joker(b: GameClient) -> void:
+	var question_box: ConfirmationDialog = Ui.get_node("QuestionBox")
+	_set_rigged(true, "closed")
+	var r: Dictionary = await b.create_game("close_joker", 2)
+	await _press("FriendsTile")
+	await _wait(0.4)
+	_node("CodeEdit").text = str(r.get("roomCode", ""))
+	await _press("JoinButton")
+	_check("their close joker: the table opens", await _until(func() -> bool: return _has("HandArea") and Game.hand().size() == 13 and b.hand().size() == 13))
+	_set_rigged(false)
+	if b.card("2♠-1").is_empty():
+		print("skipped: their Close Joker game (this test server does not know the \"closed\" deal)")
+	else:
+		await _wait(2.4)  # the deal
+		var table: Variant = _screen()
+		var my_badge: PlayerBadge = _node("MyBadge")
+		var their_badge: PlayerBadge = table._badges.values()[0]
+		_check("their close joker: no green dot yet", not my_badge._joker_seen and not their_badge._joker_seen)
+
+		var spades: Array = b.groups[0]
+		b.set_groups([spades.slice(0, 3), spades.slice(3)] + b.groups.slice(1))
+		_check("their close joker: the opponent's pure sequence opens the joker for them", await _until(func() -> bool: return not b.joker_hidden()))
+		_check("their close joker: their badge gets the green dot", await _until(func() -> bool: return their_badge._joker_seen))
+		var notices: Array = Ui.get_node("Notices").get_children().map(func(panel: Node) -> String: return (panel.get_child(0) as Label).text)
+		_check("their close joker: the popup says so too", notices.any(func(text: String) -> bool: return text.contains("has seen the joker")), str(notices))
+		_check("their close joker: not on our badge, and our joker stays closed", not my_badge._joker_seen and Game.joker_hidden())
+		await _wait(0.2)
+		await _shot("close-joker-their-dot-popping")
+		await _wait(0.6)
+		_check("their close joker: the dot has popped to full size", their_badge._dot_grow == 1.0, str(their_badge._dot_grow))
+		# The popups stand over the opponent's badge for a few seconds; the dot stays after them
+		await _until(func() -> bool: return Ui.get_node("Notices").get_child_count() == 0, 6.0)
+		_check("their close joker: the dot is still there after the popup has gone", their_badge._joker_seen)
+		await _shot("close-joker-their-dot")
+
+	await _press("LeaveButton")
+	await _until(func() -> bool: return question_box.visible)
+	await _press_in_box(question_box, "the question's Leave button")
+	_check("their close joker: leaving returns to the menu", await _until(func() -> bool: return _has("MenuPanel") and _node("MenuPanel").visible))
+	await b.leave()
 
 
 # The second line of the player's own badge, e.g. "Points in hand: 10".
@@ -579,6 +635,15 @@ func _bring_into_view(control: Control) -> void:
 			await get_tree().process_frame
 			return
 		parent = parent.get_parent()
+
+
+# Play with Friends > Create Table: the setup box for a private table, which has a lobby and a
+# room code for the opponent to join with. (A game tile's Play Now searches for players instead.)
+func _open_private_table() -> void:
+	await _press("FriendsTile")
+	await _wait(0.4)
+	await _press("CreateTableButton")
+	await _wait(0.4)
 
 
 ## Taps a button of one of the screens. A button a finger cannot reach fails the tour.
