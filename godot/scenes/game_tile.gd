@@ -64,7 +64,7 @@ func _make_cards() -> void:
 		"pool":
 			faces = [{"id": "A♠", "suit": "♠", "value": "A"}, {"id": "K♥", "suit": "♥", "value": "K"}]
 		"closed":
-			faces = [{}, {"id": "JOKER", "isJoker": true}]
+			faces = [{"id": "JOKER", "isJoker": true}, {}]
 		"deals":
 			faces = [{"id": "K♠", "suit": "♠", "value": "K"}, {"id": "Q♦", "suit": "♦", "value": "Q"}]
 		"friends":
@@ -108,8 +108,9 @@ func _layout() -> void:
 			_place(0, width * 0.85, center + Vector2(-width * 0.4, -width * 0.12), -14.0)
 			_place(1, width * 0.85, center + Vector2(width * 0.4, -width * 0.12), 14.0)
 		"closed":
-			_place(0, width, center + Vector2(-width * 0.42, 0.0), -12.0)
-			_place(1, width, center + Vector2(width * 0.42, width * 0.1), 10.0)
+			# The printed joker behind, and in front of it the round's joker lying face down
+			_place(0, width * 1.15, center + Vector2(-width * 0.46, -width * 0.1), -14.0)
+			_place(1, width * 1.15, center + Vector2(width * 0.42, width * 0.14), 9.0)
 		"deals":
 			# The cards stand behind the chips the deals are played for
 			_place(0, width * 0.9, center + Vector2(-width * 0.38, -width * 0.18), -12.0)
@@ -126,14 +127,14 @@ func _place(index: int, width: float, at: Vector2, degrees: float) -> void:
 	view.rotation_degrees = degrees
 
 
-# A glossy upper half, and for the points tile a field of faint dots.
+# A glossy upper half, and for the tall tile a field of faint dots.
 func _draw_back() -> void:
 	var gloss := StyleBoxFlat.new()
 	gloss.bg_color = Color(1, 1, 1, 0.1)
 	gloss.set_corner_radius_all(20)
 	gloss.anti_aliasing = true
 	_back.draw_style_box(gloss, Rect2(8.0, 8.0, size.x - 16.0, size.y * 0.52))
-	if kind == "points":
+	if kind in ["points", "closed"]:
 		var step := 22.0
 		var y := 30.0
 		while y < size.y - 30.0:
@@ -145,9 +146,15 @@ func _draw_back() -> void:
 
 
 # What lies over the cards: the pool tile's crown, the deals tile's chips, the faces on the
-# friends tile.
+# friends tile, the lock on Close Joker's hidden joker.
 func _draw_front() -> void:
-	if kind == "pool":
+	if kind == "closed":
+		# Turned with the card it lies on
+		var hidden := _cards[1]
+		_front.draw_set_transform(hidden.position + hidden.pivot_offset, hidden.rotation)
+		_draw_lock(Vector2(0.0, hidden.size.y * 0.06), hidden.size.x * 0.46)
+		_front.draw_set_transform(Vector2.ZERO)
+	elif kind == "pool":
 		_draw_crown(Vector2(size.x * 0.5, size.y * 0.5), size.x * 0.46)
 	elif kind == "deals":
 		_draw_chips(Vector2(size.x * 0.5, size.y * 0.56), size.x * 0.13)
@@ -175,6 +182,26 @@ func _draw_crown(center: Vector2, width: float) -> void:
 	for spike: Vector2 in [Vector2(-w, -h * 0.35), Vector2(0.0, -h * 0.5), Vector2(w, -h * 0.35)]:
 		_front.draw_circle(center + spike, h * 0.11, Color("e53935"), true, -1.0, true)
 	_front.draw_circle(center + Vector2(0.0, h * 0.12), h * 0.14, Color("1e88e5"), true, -1.0, true)
+
+
+# A gold padlock with a steel shackle: the joker stays shut until a pure sequence opens it.
+func _draw_lock(center: Vector2, width: float) -> void:
+	var dark := Ui.GOLD.darkened(0.45)
+	var body := Rect2(center.x - width / 2.0, center.y - width * 0.28, width, width * 0.76)
+	var radius := width * 0.3
+	var arch := Vector2(center.x, body.position.y + width * 0.06)
+	_front.draw_arc(arch, radius, PI, TAU, 24, dark, width * 0.22, true)
+	_front.draw_arc(arch, radius, PI, TAU, 24, Color("cfd8dc"), width * 0.12, true)
+	var box := StyleBoxFlat.new()
+	box.bg_color = Ui.GOLD
+	box.set_corner_radius_all(int(width * 0.14))
+	box.border_color = dark
+	box.set_border_width_all(3)
+	box.anti_aliasing = true
+	_front.draw_style_box(box, body)
+	var hole := body.get_center() - Vector2(0.0, width * 0.06)
+	_front.draw_circle(hole, width * 0.1, dark, true, -1.0, true)
+	_front.draw_rect(Rect2(hole.x - width * 0.04, hole.y, width * 0.08, width * 0.2), dark)
 
 
 # Three stacks of round chips, red, gold and blue, each with a white ring.

@@ -177,15 +177,10 @@ unique_name_in_owner = true
 size_flags_vertical = 4
 tooltip_text = "How to play"
 
-[node name="TopSound" type="HBoxContainer" parent="MenuPanel/Column/TopBar"]
-unique_name_in_owner = true
-size_flags_vertical = 4
-script = ExtResource("3_sound")
-
 [node name="AccountButton" type="Button" parent="MenuPanel/Column/TopBar"]
 unique_name_in_owner = true
 size_flags_vertical = 4
-tooltip_text = "Profile"
+tooltip_text = "Settings"
 
 [node name="Tiles" type="CenterContainer" parent="MenuPanel/Column"]
 size_flags_vertical = 3
@@ -193,13 +188,13 @@ size_flags_vertical = 3
 [node name="TileRow" type="HBoxContainer" parent="MenuPanel/Column/Tiles"]
 theme_override_constants/separation = 16
 
-[node name="PointsTile" type="Button" parent="MenuPanel/Column/Tiles/TileRow"]
+[node name="CloseJokerTile" type="Button" parent="MenuPanel/Column/Tiles/TileRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(290, 470)
 script = ExtResource("4_tile")
-kind = "points"
-title = "POINTS
-RUMMY"
+kind = "closed"
+title = "CLOSE
+JOKER"
 color = Color(0.898039, 0.223529, 0.207843, 1)
 
 [node name="RightColumn" type="VBoxContainer" parent="MenuPanel/Column/Tiles/TileRow"]
@@ -255,12 +250,6 @@ theme_override_font_sizes/font_size = 22
 text = "Friends"
 flat = true
 
-[node name="ProfileButton" type="Button" parent="BottomBar/LinksRow"]
-unique_name_in_owner = true
-theme_override_font_sizes/font_size = 22
-text = "Profile"
-flat = true
-
 [node name="PrivacyButton" type="Button" parent="BottomBar/LinksRow"]
 unique_name_in_owner = true
 theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
@@ -273,12 +262,6 @@ unique_name_in_owner = true
 theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
 theme_override_font_sizes/font_size = 20
 text = "Terms of use"
-flat = true
-
-[node name="LogoutButton" type="Button" parent="BottomBar/LinksRow"]
-unique_name_in_owner = true
-theme_override_font_sizes/font_size = 22
-text = "Logout"
 flat = true
 
 [node name="SoundSwitches" type="HBoxContainer" parent="BottomBar/LinksRow"]

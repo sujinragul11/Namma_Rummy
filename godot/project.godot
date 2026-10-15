@@ -14,8 +14,8 @@ config/name="Namma Rummy"
 config/description="Game client for the rummy server in ../backend."
 config/version="1.0.0"
 run/main_scene="res://scenes/main.tscn"
-config/features=PackedStringArray("4.7", "GL Compatibility")
 config/quit_on_go_back=false
+config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.0705882, 0.247059, 0.0901961, 1)
 boot_splash/image="res://assets/splash.png"
 config/icon="res://icon.png"
@@ -27,6 +27,7 @@ Sound="*res://autoload/sound.gd"
 Game="*res://net/game_client.gd"
 Ui="*res://autoload/ui.gd"
 Fx="*res://autoload/fx.gd"
+Ads="*res://autoload/ads.gd"
 
 [display]
 
@@ -35,6 +36,10 @@ window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=4
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/admob/plugin.cfg")
 
 [rendering]
 

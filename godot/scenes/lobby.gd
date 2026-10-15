@@ -104,6 +104,7 @@ func _refresh() -> void:
 			notes.append("Host")
 		notes.append("Ready" if player.get("connected", true) else "Offline")
 		badge.show_player(str(player.get("username", "Player")), "  ·  ".join(notes), false, not player.get("connected", true))
+		badge.show_photo(id, int(player.get("avatar", 0)))
 	for id: String in _shown_players.keys():
 		if not present.has(id):
 			Sound.play("leave")

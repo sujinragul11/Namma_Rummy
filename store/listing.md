@@ -10,7 +10,7 @@ The game server runs at `https://namma-rummy.onrender.com` (Render; see `render.
 | App name | Namma Rummy |
 | Package name (Android) / Bundle ID (iOS) | `app.nammarummy.com` |
 | Category | Games > Card |
-| Price | Free, no in-app purchases, no ads |
+| Price | Free, no in-app purchases, contains ads (Google AdMob, Android only) |
 | Website | `https://namma-rummy.onrender.com/` |
 | Privacy policy | `https://namma-rummy.onrender.com/privacy` |
 | Terms of use | `https://namma-rummy.onrender.com/terms` |
@@ -69,16 +69,16 @@ Screenshots still have to be taken from the finished game:
 > • 30 seconds per turn keeps the game moving
 > • Lost your connection? Come back to the same seat
 >
-> Namma Rummy is free and is played for fun only. Coins are play tokens with no cash value:
-> they cannot be bought, sold or cashed out. There is no real-money play, there are no
-> purchases and no prizes.
+> Namma Rummy is free and is played for fun only. It shows ads. Coins are play tokens with no
+> cash value: they cannot be bought, sold or cashed out. There is no real-money play, there
+> are no purchases and no prizes.
 
 ## Google Play Console: App content
 
 | Question | Answer |
 |---|---|
 | Privacy policy | `https://namma-rummy.onrender.com/privacy` |
-| Ads | No, the app contains no ads |
+| Ads | Yes, the app contains ads: full-screen ads from Google AdMob before a table, between rounds and after a game |
 | App access | Restricted: an account is needed. Give the reviewer a test account (see below) |
 | Target audience | 18 and over. Not a choice any more: players stake coins on the games, which the stores treat as simulated gambling |
 | News app, Health, Financial features, Government | No |
@@ -99,7 +99,7 @@ Screenshots still have to be taken from the finished game:
 
 | Question | Answer |
 |---|---|
-| Does the app collect or share user data? | Yes, collects. Shares nothing |
+| Does the app collect or share user data? | Yes. Our server collects the account and game data below; the AdMob SDK collects ad data (second table) |
 | Is all data encrypted in transit? | Yes |
 | Can users request that data is deleted? | Yes |
 
@@ -113,8 +113,30 @@ Data types collected, each one: *collected, not shared, processed on the server,
 | Personal info > User IDs (the username) | Required |
 | App activity > App interactions (games played and results) | Required |
 | Contacts (the friends list made inside the app; the phone's address book is never read) | Optional |
+| Photos and videos > Photos (the profile photo, only if the player adds one; also shown to other players) | Optional |
+
+Collected by the ads SDK (Google Mobile Ads, with Google's consent SDK). Fill these in from
+Google's own guidance, which is the authority and changes over time:
+https://developers.google.com/admob/android/privacy/play-data-disclosure . When this was
+written it listed, each *collected*, purposes *Advertising or marketing*, *Analytics* and
+*Fraud prevention, security, and compliance*:
+
+| Data type | Where it comes from |
+|---|---|
+| Location > Approximate location | The IP address |
+| App activity > App interactions | Ad views and taps, app launches |
+| App info and performance > Crash logs, Diagnostics | The SDK's own reports |
+| Device or other IDs | The advertising ID (the app declares the AD_ID permission) |
+
+The merged Android manifest also has ACCESS_NETWORK_STATE, READ_BASIC_PHONE_STATE, WAKE_LOCK
+and FOREGROUND_SERVICE from the ads SDK. If Play Console asks for a foreground service
+type, check the uploaded bundle's manifest under App bundle explorer before answering.
 
 ## App Store Connect
+
+The iPhone app shows no ads yet (the ads code runs on Android only), so the answers below
+have no advertising entries. Add Identifiers > Device ID for *Third-Party Advertising* and
+the App Tracking Transparency question once ads come to iOS.
 
 **App Privacy.** Data collection: Yes. For each type below: used for *App Functionality*,
 *linked to the user*, *not used for tracking*.

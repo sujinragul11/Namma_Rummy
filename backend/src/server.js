@@ -11,6 +11,7 @@ const db = require('./database/db');
 const pages = require('./pages');
 const User = require('./models/User');
 const Game = require('./models/Game');
+const Avatar = require('./models/Avatar');
 const SocketManager = require('./socket/SocketManager');
 const { cleanEmail, cleanPhone, MESSAGES } = require('./validation');
 
@@ -122,7 +123,7 @@ app.post('/api/auth/register', passwordLimiter, async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    res.status(201).json({ user, token });
+    res.status(201).json({ user: { ...user, avatar: 0 }, token });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -156,6 +157,7 @@ app.post('/api/auth/login', passwordLimiter, async (req, res) => {
 
     delete user.password_hash;
     delete user.wallet; // a column left from an earlier idea; nothing uses it
+    user.avatar = await Avatar.versionOf(user.id); // the profile photo's version, 0 for none
     res.json({ user, token });
   } catch (error) {
     console.error('Login error:', error);
@@ -224,6 +226,7 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
         totalGames: total,
         gamesWon: won,
         winPercentage: winPct,
+        avatar: user.avatar,
         created_at: user.created_at,
       }
     });
@@ -291,6 +294,61 @@ app.post('/api/user/delete', passwordLimiter, authenticateToken, async (req, res
     res.json({ deleted: true });
   } catch (error) {
     console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Profile photos. The app sends the photo itself as the request body: a small square JPEG it
+// made from the picture the player chose. Everyone who sees the player at a table or in a
+// friends list sees it; it goes away with the account.
+const avatarLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many photo changes. Please wait a few minutes and try again.' },
+});
+const readPhoto = express.raw({ type: ['image/jpeg', 'image/png'], limit: Avatar.MAX_BYTES });
+const photoBody = (req, res, next) => readPhoto(req, res, (error) => {
+  if (!error) return next();
+  const tooLarge = error.type === 'entity.too.large';
+  res.status(tooLarge ? 413 : 400).json({ error: tooLarge ? 'That picture is too large' : 'The picture could not be read' });
+});
+
+app.put('/api/user/avatar', avatarLimiter, authenticateToken, photoBody, async (req, res) => {
+  try {
+    const version = await Avatar.save(req.user.id, req.body);
+    socketManager.avatarChanged(String(req.user.id), version);
+    res.json({ avatar: version });
+  } catch (error) {
+    if (error.forPlayer) return res.status(400).json({ error: error.message });
+    console.error('Save photo error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/user/avatar', avatarLimiter, authenticateToken, async (req, res) => {
+  try {
+    await Avatar.remove(req.user.id);
+    socketManager.avatarChanged(String(req.user.id), 0);
+    res.json({ avatar: 0 });
+  } catch (error) {
+    console.error('Remove photo error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// A player's photo. The app asks with the version it was told about (?v=), so a changed photo
+// is a new address and the old one may be kept as long as the phone likes.
+app.get('/api/avatars/:userId', authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    const photo = Number.isInteger(userId) ? await Avatar.load(userId) : undefined;
+    if (!photo) return res.status(404).json({ error: 'No photo' });
+    res.set('Cache-Control', 'private, max-age=604800');
+    res.type(photo.mime).send(photo.image);
+  } catch (error) {
+    console.error('Get photo error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

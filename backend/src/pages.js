@@ -56,8 +56,9 @@ ${body}
 
 const home = () => layout('Home', `
 <h1>${app()}</h1>
-<p>Classic 13-card rummy with friends. Create a table, share the room code, and play points
-or pool rummy in real time.</p>
+<p>Classic 13-card rummy in real time. Tap Play Now to be seated with players near you, or
+open a private table and share its room code with your friends. Pool, deals and Close Joker
+rummy.</p>
 <p>The game is free and is played for fun only, with play coins that every player gets for
 free. Coins have no cash value: there is no real-money play, nothing to buy and nothing to cash out.</p>
 <p>Questions? Write to ${contact()}.</p>
@@ -80,30 +81,53 @@ and what you can do about it.</p>
   <li><strong>Friends:</strong> the players you add as friends inside the app and the friend
   requests you send or receive. This is not your phone's contact list, which the app never
   reads. Players you have accepted as friends can see whether you are online or in a game.</li>
+  <li><strong>Profile photo, if you add one:</strong> the app turns the picture you pick into a
+  small square photo on your phone and sends us only that. The players at your table, your
+  friends and the players you exchange friend requests with see it. You can remove it at any
+  time in <em>Settings</em>.</li>
   <li><strong>Technical data:</strong> like any internet service, the server receives your IP
   address when the app connects, and it may appear in short-lived server logs.</li>
 </ul>
-<p>The app does not ask for your location, contacts, photos, camera or microphone. It contains
-no advertising and no third-party analytics or tracking.</p>
+<p>The app does not ask for your location, contacts, camera or microphone, and it does not
+read your photo library: it opens only the one picture you pick when you choose a profile
+photo. It contains no third-party analytics.</p>
+
+<h2>Ads</h2>
+<p>The Android app shows full-screen ads at a few moments: before you sit down at a table,
+in the break between rounds, and after a game. The ads come from Google AdMob, a service of
+Google. To choose and count ads, Google's software in the app collects from your device:
+its advertising ID, your IP address (from which an approximate location can be worked out),
+information about the device and the app, and how you interact with the ads. Google
+receives this directly and uses it as described in
+<a href="https://policies.google.com/technologies/partner-sites">How Google uses information
+from sites or apps that use its services</a>. We do not send Google your account details,
+your games or your friends list.</p>
+<p>If you are in the European Economic Area, the United Kingdom or Switzerland, the app asks
+for your consent before ads may be personalised, the first time it starts. You can change
+that choice at any time under <em>Settings &gt; Privacy choices for ads</em>. Anywhere, you can
+reset your advertising ID or turn off ad personalisation in your phone's settings
+(<em>Settings &gt; Google &gt; Ads</em> on most Android phones).</p>
 
 <h2>How we use it</h2>
 <p>Only to run the game: to log you in, seat you at a table, show your name to the players you
 play with, keep your results, let you find and invite your friends, and protect the service
-against abuse. We do not sell your data and do not use it for advertising.</p>
+against abuse. We do not sell your data, and we do not use what is stored on our servers for
+advertising.</p>
 
 <h2>Who receives it</h2>
-<p>Your data is kept on servers run for us by our hosting provider. We do not share it with
-anyone else, unless the law requires us to.</p>
+<p>Your account and game data are kept on servers run for us by our hosting provider. We do
+not share them with anyone else, unless the law requires us to. The ad data described under
+<em>Ads</em> goes from your device to Google directly.</p>
 
 <h2>On your device</h2>
 <p>The app keeps your login on your device so you stay signed in. Logging out removes it.</p>
 
 <h2>How long we keep it, and deleting it</h2>
 <p>We keep your account until you delete it. You can delete it at any time, in the app
-(<em>Delete account</em> on the main menu) or on the web at
+(<em>Delete account</em> in your profile) or on the web at
 <a href="/delete-account">the account deletion page</a>. Deleting removes your username, email
-address, phone number, password hash, your game results, your coins and their history, and
-your friends list straight away.
+address, phone number, password hash, profile photo, your game results, your coins and their
+history, and your friends list straight away.
 Records of the tables themselves stay, without anything that identifies you.</p>
 
 <h2>Children</h2>
@@ -129,7 +153,8 @@ const terms = () => layout('Terms of use', `
 
 <h2>The game</h2>
 <p>The app is a card game played for entertainment only. It offers no real-money play, no
-purchases and no prizes, and nothing in it can be exchanged for money or goods.</p>
+purchases and no prizes, and nothing in it can be exchanged for money or goods. It is free,
+and the Android app shows ads from Google AdMob (see the privacy policy).</p>
 
 <h2>Play coins</h2>
 <p>Every account gets play coins for free. A table can have an entry in coins, which each
@@ -146,8 +171,9 @@ keeping your password to yourself. Give accurate details when you register, and 
 account per person.</p>
 
 <h2>Fair play</h2>
-<p>Do not cheat, use automated players, interfere with the service, or choose a username that
-is offensive or impersonates someone else. We may suspend or remove accounts that do.</p>
+<p>Do not cheat, use automated players, interfere with the service, or choose a username or
+profile photo that is offensive, sexual, violent, or impersonates someone else. We may remove
+such a photo, and suspend or remove accounts that do this.</p>
 
 <h2>Availability</h2>
 <p>The app is provided as it is. We try to keep it running but do not promise that it will
@@ -169,7 +195,7 @@ const deleteAccount = ({ error = '', done = false } = {}) => layout('Delete acco
 <h1>Delete your account</h1>
 <p>This permanently deletes your ${app()} account: your username, email address, phone number,
 password, game results, coins and friends list. It cannot be undone.</p>
-<p>You can also do this in the app: open the main menu and choose <em>Delete account</em>.</p>
+<p>You can also do this in the app: tap your name on the main menu to open your profile, and choose <em>Delete account</em>.</p>
 ${error ? `<p class="notice error">${escapeHtml(error)}</p>` : ''}
 <form method="post" action="/delete-account">
   <label for="identifier">Email, phone or username</label>

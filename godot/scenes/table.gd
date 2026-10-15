@@ -336,6 +336,7 @@ func _refresh_opponents(is_pool: bool) -> void:
 			info += "  ·  %d chips" % int(player.get("chips", 0))
 		var their_turn: bool = playing and Game.state.get("currentPlayer") == id
 		badge.show_player(str(player.get("username", "Player")), info, their_turn, sitting_out, _has_seen_joker(player))
+		badge.show_photo(id, int(player.get("avatar", 0)))
 
 	for id: String in _badges.keys():
 		if not present.has(id):
@@ -490,6 +491,7 @@ func _refresh_actions() -> void:
 	var me := Game.me()
 	var sitting_out: bool = me.get("eliminated", false) or me.get("status") == "dropped"
 	_my_badge.show_player(str(Game.user.get("username", "You")), "Points in hand: %d" % points, Game.is_my_turn(), sitting_out, _has_seen_joker(me))
+	_my_badge.show_photo(Game.player_id, int(me.get("avatar", 0)))
 
 
 # What this update showed, kept so the next one can be compared with it.

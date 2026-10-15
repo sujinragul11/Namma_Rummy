@@ -28,7 +28,7 @@ func _run(main: Control) -> void:
 	await _wait(0.8)
 	await _shot("menu")
 	var home: Node = main.get_node("%Screen").get_child(0)
-	for tile_name: String in ["PointsTile", "PoolTile", "DealsTile"]:
+	for tile_name: String in ["CloseJokerTile", "PoolTile", "DealsTile"]:
 		(main.find_child(tile_name, true, false) as Button).pressed.emit()
 		await _wait(0.6)
 		if tile_name == "PoolTile":
@@ -67,6 +67,31 @@ func _run(main: Control) -> void:
 	await _shot("rules")
 	(main.find_child("RulesCloseButton", true, false) as Button).pressed.emit()
 	(main.find_child("AccountButton", true, false) as Button).pressed.emit()
+	await _wait(0.6)
+	await _shot("settings")
+	# With a photo: one made the way the editor makes them, put straight into the app's store,
+	# then a picture chosen and waiting for Save
+	var picture := Image.create_empty(480, 640, false, Image.FORMAT_RGB8)
+	for y in 640:
+		for x in 480:
+			picture.set_pixel(x, y, Color.from_hsv(float(x + y) / 1400.0, 0.55, 0.95))
+	picture.fill_rect(Rect2i(170, 150, 140, 140), Color("ffcc80"))  # something like a face
+	var photo: Dictionary = AvatarEditor.make_photo(picture.save_png_to_buffer())
+	Game.user["avatar"] = 1
+	Game._avatars["1"] = {"version": 1, "texture": null, "failed": false}
+	Game._store_avatar("1", 1, photo.jpeg)
+	await _wait(0.4)
+	await _shot("settings-photo")
+	var editor: AvatarEditor = main.find_child("AvatarEditor", true, false)
+	editor.open_picture("res://icon.png")
+	await _wait(1.0)
+	await _shot("settings-photo-chosen")
+	editor._cancel()
+	(main.find_child("SettingsCloseButton", true, false) as Button).pressed.emit()
+	await _wait(0.3)
+	await _shot("menu-photo")
+	await _wait(0.3)
+	home.call("_open_profile")  # what a tap on the player's picture does
 	await _wait(0.6)
 	await _shot("profile")
 	print("preview: %d pictures in %s (home %s)" % [_step, _shots, home.name])

@@ -1,4 +1,5 @@
 const Friend = require('../models/Friend');
+const Avatar = require('../models/Avatar');
 
 const INVITE_PAUSE_MS = 10000; // between two invitations to the same friend
 const PRESENCE_DELAY_MS = 50; // gathers the changes of one move into one update
@@ -50,7 +51,10 @@ class FriendsManager {
   async stateFor(userId) {
     const me = Number(userId);
     const [lists, recent] = await Promise.all([Friend.list(me), Friend.recentPlayers(me)]);
-    const plain = (entry) => ({ id: String(entry.id), username: entry.username });
+    const everyone = [...lists.friends, ...lists.incoming, ...lists.outgoing, ...recent];
+    const photos = await Avatar.versions(everyone.map((entry) => entry.id));
+    // `avatar`: the profile photo's version, 0 for none
+    const plain = (entry) => ({ id: String(entry.id), username: entry.username, avatar: photos.get(String(entry.id)) || 0 });
     return {
       friends: lists.friends.map((friend) => ({ ...plain(friend), status: this.statusOf(String(friend.id)) })),
       incoming: lists.incoming.map(plain),

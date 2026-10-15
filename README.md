@@ -6,8 +6,9 @@ A real-time multiplayer Rummy card game built with Node.js backend and React Nat
 
 - **Real-time Multiplayer**: Play with friends using WebSocket connections
 - **Play Now (automatic matchmaking)**: pick a game and tap Play Now; the server seats you with other players who want the same table, without a room code. Players in the same region (the phone's time zone) are matched first; after 8 seconds the search widens to time zones up to 3 hours away, after 16 seconds to everyone. A 2-seat table starts as soon as two are found; a 6-seat table starts when it is full, or 15 seconds after its second player is found, with whoever is there
-- **Multiple Game Modes**: Points, Pool 101, Pool 201, Close Joker 240 (the joker stays hidden until you make a pure sequence), and Deals Rummy (2 or 3 deals)
-- **Coins**: Every account starts with 50,000 play coins. Points Rummy is played for coins a point (free, 5, 10, 20, 50, 100, 200 or 500): each loser pays the winner their points times that value, and what 80 points cost is held while playing. A Pool or Deals table has an entry (free, 500, 1,000, 2,000, 5,000, 10,000, 25,000 or 50,000); each player pays it to sit down and the winner of the game takes the whole pot. Leaving before the cards are dealt gives the entry back; a game that ends without a winner returns every entry. Coins are play money: they cannot be bought, transferred or cashed out
+- **Multiple Game Modes**: Close Joker 240 (the joker stays hidden until you make a pure sequence; a green dot on a player's avatar shows who has seen it), Pool 101, Pool 201, and Deals Rummy (2 or 3 deals). The server also still plays Points Rummy, but the app's menu no longer offers it: Close Joker took its tile
+- **Coins**: Every account starts with 50,000 play coins. Points Rummy (server only, see above) is played for coins a point (free, 5, 10, 20, 50, 100, 200 or 500): each loser pays the winner their points times that value, and what 80 points cost is held while playing. A Pool or Deals table has an entry (free, 500, 1,000, 2,000, 5,000, 10,000, 25,000 or 50,000); each player pays it to sit down and the winner of the game takes the whole pot. Leaving before the cards are dealt gives the entry back; a game that ends without a winner returns every entry. Coins are play money: they cannot be bought, transferred or cashed out
+- **Profile photos**: Settings > Profile photo picks a picture from the phone's gallery (Android, and the PC test builds; Godot has no picker on iOS yet). The phone turns it upright, cuts it square and sends a small JPEG; it shows at the table, in the lobby, in friends lists and in the top bar. It can be removed again, and goes with a deleted account
 - **Friends**: Add friends by username, see who is online or in a game, open a private table (Play with Friends) and invite a friend to it with one tap, share the room code on WhatsApp
 - **Turn Timer**: 30 seconds per turn; the server plays for a player who runs out of time and drops them after three misses in a row
 - **Cross-platform**: Works on iOS and Android
@@ -298,9 +299,17 @@ godot --headless --path . res://tests/client_e2e.tscn -- --server=http://127.0.0
 # Coins: entries, refunds, the pot to the winner, tables one cannot afford
 godot --headless --path . res://tests/coins_e2e.tscn -- --server=http://127.0.0.1:3101
 
+# Profile photos: made on the phone (EXIF turning, square cut), saved, seen by another player at
+# the table, in the friends list and in a badge, replaced, removed, refused when not a small picture
+godot --headless --path . res://tests/avatar_e2e.tscn -- --server=http://127.0.0.1:3101 --mute
+
 # Restarts: kills the server in the middle of a game and checks the players play on with the same
 # cards. This one starts and stops its own test backend, on the port and database given here
 godot --headless --path . res://tests/server_restart.tscn -- --port=3112 --db=My_Rummy_restart_test
+
+# Ads: shown only before sitting down, between rounds and after a finished game (stand-in ads;
+# needs the normal 12 s break between rounds, so not a server started with NEXT_ROUND_SECONDS)
+godot --headless --path . res://tests/ads_policy.tscn -- --profile=adstest --server=http://127.0.0.1:3101
 
 # Play Now: tiles, setup boxes, the search box and matched tables, through the real screens with two
 # screenless players. Start its test backend with short waits first:
@@ -386,6 +395,15 @@ godot --headless --path . res://tests/store_release.tscn -- --profile=storetest 
 - `GET /api/user/profile` - Profile with games played / won
 - `PATCH /api/user/profile` - Update username and email
 - `POST /api/user/delete` `{ password }` - Delete the account and its game results for good
+- `PUT /api/user/avatar` - Save a profile photo: the body is the picture itself
+  (`Content-Type: image/jpeg` or `image/png`), at most 200 KB and 512 pixels a side; the app
+  sends a 256 pixel square JPEG it made. Answers `{ avatar }`, the photo's new version
+- `DELETE /api/user/avatar` - Remove the photo; answers `{ avatar: 0 }`
+- `GET /api/avatars/:userId?v=<version>` - A player's photo (404 when there is none). The
+  version only goes up, so a phone can keep a photo it has under that version
+- Wherever a player appears (the `user` of login and register, the profile, `players[]` of
+  `gameState`, every entry of `friendsState`) `avatar` is the photo's version, 0 for none. A
+  change is pushed at once to the player's table and to everyone whose lists show them
 
 Register, login and delete accept 40 requests per 5 minutes from one address, then answer 429.
 
@@ -568,6 +586,42 @@ The store texts, the graphics and the answers for the store forms are in `store/
 
 `build-android.bat debug` makes a test `.apk` that keeps the Server field, for playing
 against the backend on your PC before the public server exists.
+
+**Ads (Google AdMob)**
+
+The Android app shows full-screen ads at three moments of a game and never at any other
+(`godot/autoload/ads.gd` decides, `godot/tests/ads_policy` checks it):
+
+1. Before the player sits down at a table (Play Now, a new table, a room code, an invitation,
+   Play again). The ad comes before the server is asked, so no turn clock runs meanwhile.
+2. In the break between two rounds (Pool, Deals), while at least 9 of its 12 seconds are left.
+3. When the player leaves the result of a finished game.
+
+Never during anyone's turn or the 15 seconds to arrange cards after a declaration, at most one
+every 90 seconds, and only when an ad has already been downloaded, so nobody waits for one.
+Players in the EEA, the UK and Switzerland first see Google's consent form, and Settings offers
+"Privacy choices for ads" where the law requires it.
+
+Test builds (`build-android.bat debug`) show Google's test ads. Store builds show no ads until
+you fill in your own AdMob ids:
+
+1. Create an AdMob account, add the app (Android, package `app.nammarummy.com`) and create one
+   "Interstitial" ad unit.
+2. Put the app's App ID (it contains `~`) into `godot/project.godot`:
+   ```
+   [admob]
+
+   general/android/app_id="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"
+   ```
+3. Put the ad unit ID (it contains `/`) into `RELEASE_INTERSTITIAL_ID` in
+   `godot/autoload/config.gd`.
+4. In Play Console answer "Contains ads" with Yes and fill in Data safety as `store/listing.md`
+   describes.
+
+Never tap your own real ads, and never use your real ad unit in a test build: Google closes
+accounts for invalid clicks. The ads come from the Poing Studios AdMob plugin in
+`godot/addons/admob/`; its Android and iOS libraries (`android/bin`, `ios/bin`) are not in git,
+and the first headless editor run of a fresh clone downloads them.
 
 The build needs JDK 17 and the Android SDK (platform 36, build-tools 36.1.0) in
 `%LOCALAPPDATA%\Android`, and the Godot 4.7.2 export templates. Their paths are at the top of

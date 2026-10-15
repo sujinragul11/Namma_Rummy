@@ -112,6 +112,7 @@ func _refresh() -> void:
 	if not since.is_empty():
 		details.append("Playing since %s" % since)
 	_badge.show_player(username, "  ·  ".join(details), false)
+	_badge.show_photo(Game.player_id, Game.my_avatar())
 
 	var changed := _name_edit.text.strip_edges() != username or _email_edit.text.strip_edges().to_lower() != email.to_lower()
 	_save_button.disabled = not changed or not _fields_filled or Game.busy or not Game.is_online()

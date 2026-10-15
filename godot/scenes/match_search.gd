@@ -113,8 +113,8 @@ func _ready() -> void:
 	Game.match_changed.connect(_on_match_changed)
 
 
-## Opens the box for the table being searched for, described in `game` (e.g. "Points Rummy
-## · 2 players · 10 coins a point").
+## Opens the box for the table being searched for, described in `game` (e.g. "Close Joker
+## Rummy · 240 Points · 2 players · entry 500 coins").
 func open_for(game: String) -> void:
 	_game_label.text = game
 	_found = 1
@@ -208,6 +208,10 @@ func _draw_seats() -> void:
 				# A tick: a player found for this seat
 				var tick := PackedVector2Array([center + Vector2(-13, 1), center + Vector2(-4, 11), center + Vector2(14, -10)])
 				_seats.draw_polyline(tick, Color.WHITE, 6.0, true)
+				continue
+			var photo := Game.avatar_texture(Game.player_id, Game.my_avatar())
+			if photo != null:
+				PlayerBadge.draw_photo(_seats, center, SEAT_RADIUS, photo)
 				continue
 			letter = me.substr(0, 1).to_upper()
 		else:

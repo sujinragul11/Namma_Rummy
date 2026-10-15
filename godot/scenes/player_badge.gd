@@ -8,6 +8,7 @@ const AVATAR_COLORS: Array[Color] = [
 ]
 const RING_WIDTH := 5.0
 const JOKER_SEEN_COLOR := Color("00e676")
+const PHOTO_EDGE := 48  # corners of the circle a photo is cut to
 
 ## Size of the avatar circle, ring included.
 var avatar_size := 58.0:
@@ -34,6 +35,9 @@ var _player_name := ""
 var _is_turn := false
 var _joker_seen := false
 var _dot_grow := 1.0  # the green dot pops in from 0
+var _photo: Texture2D  # the player's profile photo, drawn in place of the letter
+var _photo_owner := ""  # whose photo, and which version of it
+var _photo_version := 0
 var _avatar: Control
 var _lines_box: PanelContainer
 var _name_label: Label
@@ -96,6 +100,38 @@ func show_player(player_name: String, info: String, is_turn: bool, sitting_out: 
 		tween.tween_property(_avatar, "scale", Vector2.ONE, 0.2)
 
 
+## The player's profile photo in the circle, in place of the letter. `version` comes with the
+## player from the server; 0 means no photo. Until the photo has arrived the letter shows.
+func show_photo(user_id: String, version: int) -> void:
+	if user_id == _photo_owner and version == _photo_version:
+		return
+	_photo_owner = user_id
+	_photo_version = version
+	if not Game.avatar_loaded.is_connected(_on_avatar_loaded):
+		Game.avatar_loaded.connect(_on_avatar_loaded)
+	_photo = Game.avatar_texture(user_id, version)
+	_avatar.queue_redraw()
+
+
+## Draws `photo` filling a circle, for every place that shows a player's picture.
+static func draw_photo(canvas: CanvasItem, center: Vector2, radius: float, photo: Texture2D) -> void:
+	var points := PackedVector2Array()
+	var uvs := PackedVector2Array()
+	for index in PHOTO_EDGE:
+		var direction := Vector2.from_angle(TAU * index / PHOTO_EDGE)
+		points.append(center + direction * radius)
+		uvs.append(Vector2(0.5, 0.5) + direction * 0.5)
+	canvas.draw_colored_polygon(points, Color.WHITE, uvs, photo)
+	# A polygon's edge is not smoothed: a thin line round it is
+	canvas.draw_arc(center, radius, 0.0, TAU, PHOTO_EDGE, Color(0, 0, 0, 0.3), 1.5, true)
+
+
+func _on_avatar_loaded(user_id: String) -> void:
+	if user_id == _photo_owner:
+		_photo = Game.avatar_texture(_photo_owner, _photo_version)
+		_avatar.queue_redraw()
+
+
 ## Where cards fly to and from: the middle of the avatar, in global coordinates.
 func avatar_center() -> Vector2:
 	return _avatar.global_position + _avatar.size / 2.0
@@ -109,14 +145,16 @@ func _process(_delta: float) -> void:
 func _draw_avatar() -> void:
 	var center := _avatar.size / 2.0
 	var radius := minf(center.x, center.y) - RING_WIDTH - 2.0
-	var color := AVATAR_COLORS[absi(hash(_player_name)) % AVATAR_COLORS.size()]
-	_avatar.draw_circle(center, radius, color, true, -1.0, true)
-
-	var letter := _player_name.substr(0, 1).to_upper()
-	var font := get_theme_default_font()
-	var font_size := int(radius * 1.05)
-	var baseline := center.y + (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
-	_avatar.draw_string(font, Vector2(0, baseline), letter, HORIZONTAL_ALIGNMENT_CENTER, _avatar.size.x, font_size, Color.WHITE)
+	if _photo != null:
+		draw_photo(_avatar, center, radius, _photo)
+	else:
+		var color := AVATAR_COLORS[absi(hash(_player_name)) % AVATAR_COLORS.size()]
+		_avatar.draw_circle(center, radius, color, true, -1.0, true)
+		var letter := _player_name.substr(0, 1).to_upper()
+		var font := get_theme_default_font()
+		var font_size := int(radius * 1.05)
+		var baseline := center.y + (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
+		_avatar.draw_string(font, Vector2(0, baseline), letter, HORIZONTAL_ALIGNMENT_CENTER, _avatar.size.x, font_size, Color.WHITE)
 
 	if _is_turn:
 		# The turn clock: a full ring that empties clockwise, turning red near the end

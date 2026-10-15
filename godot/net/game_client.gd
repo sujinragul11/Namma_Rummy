@@ -21,6 +21,8 @@ signal profile_changed
 signal invite_received(invite: Dictionary)
 ## "Play Now": a search for players began, moved on (see match_status) or ended.
 signal match_changed
+## A player's profile photo has arrived (or changed); avatar_texture() now has it.
+signal avatar_loaded(user_id: String)
 
 const HTTP_TIMEOUT := 10.0
 ## What the server answers to a move when it no longer has the table we are sitting at.
@@ -32,6 +34,9 @@ const STAKES := [0, 500, 1000, 2000, 5000, 10000, 25000, 50000]
 ## times that. Sitting down holds what MAX_POINTS points cost, and what is not lost comes back.
 const POINT_VALUES := [0, 5, 10, 20, 50, 100, 200, 500]
 const MAX_POINTS := 80
+## Profile photos already fetched, kept between runs: "<user id>-<version>.jpg".
+const AVATAR_CACHE := "user://avatars"
+const AVATAR_FETCHES_AT_ONCE := 4
 
 ## Tests set this to false so their throwaway logins are not saved.
 var remember_login := true
@@ -54,11 +59,12 @@ var turn_ends_at := 0
 var next_round_at := 0
 ## How long the current turn lasts in all (msec), so the clock can be drawn as a shrinking ring.
 var turn_total := 0
-## Our friends, as {"id", "username", "status"}; status is "online", "lobby" (waiting at a
-## table), "playing" or "offline".
+## Our friends, as {"id", "username", "avatar", "status"}; status is "online", "lobby"
+## (waiting at a table), "playing" or "offline". "avatar" is the profile photo's version, 0
+## for none, here and wherever a player is listed (the table's players, the lists below).
 var friends: Array = []
 ## Players who ask to be our friend, players we asked, and players we met at a table who are
-## in none of the lists yet; each {"id", "username"}.
+## in none of the lists yet; each {"id", "username", "avatar"}.
 var friend_requests: Array = []
 var friend_asked: Array = []
 var recent_players: Array = []
@@ -83,6 +89,11 @@ var busy: bool:
 
 var _pending := 0
 var _friends_known := false  # false until the server has sent the lists once
+# Profile photos: user id -> {"version": int, "texture": the photo or null, "failed": bool}.
+# A photo being fetched has its version here already, so it is asked for once.
+var _avatars: Dictionary = {}
+var _avatar_queue: Array = []  # [user id, version] still to fetch
+var _avatar_fetches := 0  # how many are on their way
 
 
 func _ready() -> void:
@@ -316,6 +327,7 @@ func turn_fraction() -> float:
 ## A private table (`is_private`) is for the player's own friends: it is never listed, and
 ## only someone with its room code can sit down.
 func create_game(game_type: String = "points", max_players: int = 2, stake: int = 0, is_private: bool = false, point_value: int = -1) -> Dictionary:
+	await _ad_before_table()
 	var request := table_request(game_type, max_players, stake, point_value)
 	request["private"] = is_private
 	return await _ask("createGame", request)
@@ -325,6 +337,7 @@ func create_game(game_type: String = "points", max_players: int = 2, stake: int 
 ## region (time zone) first, with no room code. The search runs until the server seats us,
 ## which brings the table's state, or until cancel_match(). Follow it through match_changed.
 func find_match(game_type: String, max_players: int, stake: int, point_value: int = -1) -> Dictionary:
+	await _ad_before_table()
 	match_search = table_request(game_type, max_players, stake, point_value)
 	match_search["timezone"] = time_zone_minutes()
 	match_status = {}
@@ -358,7 +371,16 @@ static func time_zone_minutes() -> int:
 
 
 func join_by_code(room_code: String) -> Dictionary:
+	await _ad_before_table()
 	return await _ask("joinGameByRoomCode", {"roomCode": room_code.strip_edges().to_upper()})
+
+
+# Sitting down at a table is one of the moments an ad may show (see autoload/ads.gd): before the
+# request leaves, so no turn clock runs while it is on screen. Only for this device's own
+# player, not for the extra players the tests create.
+func _ad_before_table() -> void:
+	if self == Game:
+		await Ads.before_table()
 
 
 func start_game() -> Dictionary:
@@ -433,6 +455,9 @@ func fetch_profile() -> Dictionary:
 	var response: Dictionary = await _http(HTTPClient.METHOD_GET, "/api/user/profile")
 	if response.ok:
 		profile = response.data.get("user", {})
+		# The photo may have been changed on another phone since this login was saved
+		if int(profile.get("avatar", 0)) != my_avatar():
+			_keep_own_avatar(int(profile.get("avatar", 0)))
 		profile_changed.emit()
 	return response
 
@@ -460,6 +485,127 @@ func update_profile(username: String, email: String) -> Dictionary:
 	profile_changed.emit()
 	notice.emit("info", "Profile saved")
 	return response
+
+
+# ---------- profile photos ----------
+
+## Our own photo's version; 0 when we have none.
+func my_avatar() -> int:
+	return int(user.get("avatar", 0))
+
+
+## Saves our profile photo: `jpeg` is the small square picture AvatarEditor made.
+func upload_avatar(jpeg: PackedByteArray) -> Dictionary:
+	_begin()
+	var response: Dictionary = await _http(HTTPClient.METHOD_PUT, "/api/user/avatar", jpeg, "image/jpeg")
+	_end()
+	if response.ok:
+		# No need to fetch what we just sent
+		var version := int(response.data.get("avatar", 0))
+		_avatars[player_id] = {"version": version, "texture": null, "failed": false}
+		if _store_avatar(player_id, version, jpeg):
+			_save_avatar_file(player_id, version, jpeg)
+		_keep_own_avatar(version)
+		notice.emit("info", "Profile photo saved")
+	else:
+		action_failed.emit(response.error)
+	return response
+
+
+## Goes back to the letter in a coloured circle.
+func remove_avatar() -> Dictionary:
+	_begin()
+	var response: Dictionary = await _http(HTTPClient.METHOD_DELETE, "/api/user/avatar")
+	_end()
+	if response.ok:
+		_keep_own_avatar(0)
+		notice.emit("info", "Profile photo removed")
+	else:
+		action_failed.emit(response.error)
+	return response
+
+
+## A player's photo at this version, or null: when they have none (version 0), or while it is
+## still on its way, in which case avatar_loaded follows. A photo that was replaced stays
+## until the new one is here.
+func avatar_texture(user_id: String, version: int) -> Texture2D:
+	if version <= 0 or user_id.is_empty():
+		return null
+	var known: Dictionary = _avatars.get(user_id, {})
+	if int(known.get("version", 0)) == version:
+		return known.get("texture")
+	_avatars[user_id] = {"version": version, "texture": known.get("texture"), "failed": false}
+	var cached := FileAccess.get_file_as_bytes(_avatar_path(user_id, version))
+	if not cached.is_empty() and _store_avatar(user_id, version, cached):
+		return _avatars[user_id].texture
+	_avatar_queue.append([user_id, version])
+	_next_avatar_fetch()
+	return known.get("texture")
+
+
+func _keep_own_avatar(version: int) -> void:
+	user["avatar"] = version
+	profile["avatar"] = version
+	if remember_login:
+		Config.save_login(token, user)
+	profile_changed.emit()
+	avatar_loaded.emit(player_id)
+
+
+func _avatar_path(user_id: String, version: int) -> String:
+	return "%s/%s-%d.jpg" % [AVATAR_CACHE, user_id.validate_filename(), version]
+
+
+func _next_avatar_fetch() -> void:
+	while _avatar_fetches < AVATAR_FETCHES_AT_ONCE and not _avatar_queue.is_empty():
+		var wanted: Array = _avatar_queue.pop_front()
+		if int(_avatars.get(wanted[0], {}).get("version", 0)) == wanted[1]:
+			_fetch_avatar(wanted[0], wanted[1])
+
+
+func _fetch_avatar(user_id: String, version: int) -> void:
+	_avatar_fetches += 1
+	var http := HTTPRequest.new()
+	http.timeout = HTTP_TIMEOUT
+	add_child(http)
+	var headers := PackedStringArray(["Authorization: Bearer " + token])
+	var url := "%s/api/avatars/%s?v=%d" % [server_url, user_id.uri_encode(), version]
+	var result: Array = []
+	if http.request(url, headers) == OK:
+		result = await http.request_completed
+	http.queue_free()
+	_avatar_fetches -= 1
+	var arrived: bool = not result.is_empty() and result[0] == HTTPRequest.RESULT_SUCCESS and result[1] == 200
+	if arrived and _store_avatar(user_id, version, result[3]):
+		_save_avatar_file(user_id, version, result[3])
+	elif int(_avatars.get(user_id, {}).get("version", 0)) == version:
+		_avatars[user_id].failed = true  # the letter stays; asked again only for a new version
+	_next_avatar_fetch()
+
+
+# Keeps a photo for the next run, in place of the player's earlier one.
+func _save_avatar_file(user_id: String, version: int, bytes: PackedByteArray) -> void:
+	DirAccess.make_dir_recursive_absolute(AVATAR_CACHE)
+	var prefix := user_id.validate_filename() + "-"
+	for old: String in DirAccess.get_files_at(AVATAR_CACHE):
+		if old.begins_with(prefix):
+			DirAccess.remove_absolute("%s/%s" % [AVATAR_CACHE, old])
+	var file := FileAccess.open(_avatar_path(user_id, version), FileAccess.WRITE)
+	if file != null:
+		file.store_buffer(bytes)
+
+
+# Makes a texture of a photo's bytes and keeps it, if it is still the version wanted.
+func _store_avatar(user_id: String, version: int, bytes: PackedByteArray) -> bool:
+	var image := Image.new()
+	var loaded := image.load_jpg_from_buffer(bytes) if bytes.size() > 2 and bytes[0] == 0xFF and bytes[1] == 0xD8 else image.load_png_from_buffer(bytes)
+	if loaded != OK or image.is_empty():
+		return false
+	if int(_avatars.get(user_id, {}).get("version", version)) != version:
+		return false  # a newer photo was asked for meanwhile
+	_avatars[user_id] = {"version": version, "texture": ImageTexture.create_from_image(image), "failed": false}
+	avatar_loaded.emit(user_id)
+	return true
 
 
 # ---------- friends ----------
@@ -546,8 +692,9 @@ func _set_login(new_token: String, new_user: Dictionary) -> void:
 	auth_changed.emit()
 
 
-## Returns {"ok": bool, "error": String, "data": Dictionary}.
-func _http(method: HTTPClient.Method, path: String, body: Variant = null) -> Dictionary:
+## Returns {"ok": bool, "error": String, "data": Dictionary}. `body` is sent as JSON, or as it
+## is when it is a PackedByteArray (a photo), with `content_type`.
+func _http(method: HTTPClient.Method, path: String, body: Variant = null, content_type := "application/json") -> Dictionary:
 	var unreachable := {
 		"ok": false,
 		"data": {},
@@ -562,11 +709,15 @@ func _http(method: HTTPClient.Method, path: String, body: Variant = null) -> Dic
 	var http := HTTPRequest.new()
 	http.timeout = HTTP_TIMEOUT
 	add_child(http)
-	var headers := PackedStringArray(["Content-Type: application/json"])
+	var headers := PackedStringArray(["Content-Type: " + content_type])
 	if not token.is_empty():
 		headers.append("Authorization: Bearer " + token)
-	var text := "" if body == null else JSON.stringify(body)
-	if http.request(server_url + path, headers, method, text) != OK:
+	var sent: int
+	if body is PackedByteArray:
+		sent = http.request_raw(server_url + path, headers, method, body)
+	else:
+		sent = http.request(server_url + path, headers, method, "" if body == null else JSON.stringify(body))
+	if sent != OK:
 		http.queue_free()
 		return unreachable
 

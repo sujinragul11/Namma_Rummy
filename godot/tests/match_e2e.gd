@@ -1,7 +1,7 @@
 extends Control
 ## "Play Now" through the real screens: a game tile, its setup box, the search box, and the
 ## table the server seats the player at, with screenless players searching from other phones.
-## No room code anywhere. Covers Points for coins a point, cancelling a search, a six-seat
+## No room code anywhere. Covers Close Joker with an entry, cancelling a search, a six-seat
 ## Pool 201 table that starts with the three players found, Deals Rummy, and a player from
 ## another region who is matched only once the search has widened.
 ##
@@ -43,49 +43,49 @@ func _run() -> void:
 	await Game.register("Anu" + tag, "anu%s@test.local" % tag, _phone(), PASSWORD)
 	_check("logged in and online", await _until(func() -> bool: return Game.is_online() and _shown("MenuPanel")))
 	await _wait(0.6)
-	_check("the tiles are the four of the lobby", _shown("PointsTile") and _shown("PoolTile") and _shown("DealsTile") and _shown("FriendsTile"))
+	_check("the tiles are the four of the lobby", _shown("CloseJokerTile") and _shown("PoolTile") and _shown("DealsTile") and _shown("FriendsTile"))
 	await _shot("menu")
 
-	# ---------- Points, 2 players, 10 coins a point ----------
-	await _press("PointsTile")
+	# ---------- Close Joker, 2 players, an entry of 500 ----------
+	await _press("CloseJokerTile")
 	await _wait(0.4)
-	_check("the Points box offers 2 or 6 players", _chip("2P").visible and _chip("6P").visible and not _chip("3P").visible and not _chip("4P").visible and not _chip("5P").visible)
-	_check("and a point value, 10 to begin with", _node("StakeCoins")._label.text == "10 per point" and _text("StakeLabel") == "SELECT POINT VALUE", _node("StakeCoins")._label.text)
+	_check("the Close Joker box offers 2 or 6 players", _chip("2P").visible and _chip("6P").visible and not _chip("3P").visible and not _chip("4P").visible and not _chip("5P").visible)
+	_check("and an entry, 500 to begin with", _node("StakeCoins")._label.text == "500" and _text("StakeLabel") == "SELECT ENTRY AMOUNT" and _text("SetupTitle") == "Close Joker Rummy", _node("StakeCoins")._label.text)
 	_check("its button is Play Now", _text("CreateButton") == "Play Now", _text("CreateButton"))
-	await _shot("points-setup")
+	await _shot("close-joker-setup")
 	await _press("CreateButton")
 	_check("Play Now opens the search box", await _until(func() -> bool: return _shown("CancelSearchButton")) and not _shown("CreateButton"))
-	_check("which names the table", _text("SearchGame").contains("Points Rummy") and _text("SearchGame").contains("2 players") and _text("SearchGame").contains("10 coins a point"), _text("SearchGame"))
+	_check("which names the table", _text("SearchGame").contains("Close Joker Rummy") and _text("SearchGame").contains("240 Points") and _text("SearchGame").contains("2 players") and _text("SearchGame").contains("entry 500 coins"), _text("SearchGame"))
 	_check("and says it looks in the player's region first", await _until(func() -> bool: return _text("SearchScope").begins_with("Looking for players in your region")), _text("SearchScope"))
 	_check("nobody is found yet", _text("SearchCount") == "Searching for players..." and Game.searching(), _text("SearchCount"))
 	await _shot("searching")
 
-	var r: Dictionary = await b.find_match("points", 2, 0, 10)
+	var r: Dictionary = await b.find_match("close_joker", 2, 500)
 	_check("another phone searching for the same table", r.get("ok", false), str(r))
 	_check("the table opens by itself, with no room code typed", await _until(func() -> bool: return _has("HandArea") and Game.hand().size() == 13))
 	_check("the search is over on both phones", not Game.searching() and not b.searching())
 	_check("both sit at the same table", Game.state.get("gameId") == b.state.get("gameId") and Game.players().size() == 2)
-	_check("played for 10 coins a point", Game.point_value() == 10 and await _until(func() -> bool: return _text("RoomLabel").contains("10 coins a point")), _text("RoomLabel"))
-	_check("800 coins are held while playing", await _until(func() -> bool: return Game.coins == 49200), str(Game.coins))
+	_check("it is Close Joker 240, and the pot holds both entries", Game.state.get("closedJoker") == true and await _until(func() -> bool: return _text("RoomLabel").contains("Close Joker 240") and _text("RoomLabel").ends_with("Pot 1,000")), _text("RoomLabel"))
+	_check("the entry was paid on sitting down", await _until(func() -> bool: return Game.coins == 49500), str(Game.coins))
 	await _wait(1.5)
-	await _shot("points-table")
+	# A random deal: the joker stays shut unless the hand already holds a pure sequence
+	var joker_card: CardView = _node("JokerCard")
+	_check("the joker pile shows what the server sent", joker_card.face_down == Game.joker_hidden() and (_text("JokerLabel") == "Joker  ·  hidden") == Game.joker_hidden(), _text("JokerLabel"))
+	_check("and the green dot is on our badge only if we have seen it", _node("MyBadge")._joker_seen == (not Game.joker_hidden()))
+	await _shot("close-joker-table")
 
-	# Whoever is on turn drops: 20 points, 200 coins
+	# Whoever is on turn drops; the game goes on to 240, so the round result counts down
 	var dropper := Game if Game.is_my_turn() else b
-	var other := b if dropper == Game else Game
 	await dropper.drop()
-	_check("the result opens", await _until(func() -> bool: return _shown("ResultOverlay")))
+	_check("the round result opens", await _until(func() -> bool: return _shown("ResultOverlay")))
 	await _wait(1.0)
-	var rows_text := _labels_in("ResultRows")
-	_check("the result shows the coins lost and won", rows_text.contains("-200 coins") and rows_text.contains("+200 coins"), rows_text)
-	var prize_text: String = _node("PrizeLabel")._label.text
-	var prize_says := "200 coins won" if other == Game else "200 coins go to %s" % str(b.user.get("username", ""))
-	_check("the result names the coins won", _shown("PrizeLabel") and prize_text == prize_says, prize_text)
-	_check("the loser paid 200, the winner got it", await _until(func() -> bool: return dropper.coins == 49800 and other.coins == 50200), "%d / %d" % [dropper.coins, other.coins])
-	await _shot("points-result")
+	_check("it is round 1 of a longer game", _text("ResultTitle").ends_with("won round 1") and _text("NextRoundLabel").begins_with("Next round in "), "%s | %s" % [_text("ResultTitle"), _text("NextRoundLabel")])
+	await _shot("close-joker-result")
+	await b.leave()
+	_check("the last player left wins the game and takes the pot", await _until(func() -> bool: return Game.status() == "finished" and Game.coins == 50500), "%s %d" % [Game.status(), Game.coins])
+	await _wait(1.0)
 	await _press("BackButton")
 	_check("back on the menu", await _until(func() -> bool: return _shown("MenuPanel")))
-	await b.leave()
 	await _wait(0.5)
 
 	# ---------- cancelling a search ----------
@@ -145,7 +145,7 @@ func _run() -> void:
 	_check("the deal's result opens", await _until(func() -> bool: return _shown("ResultOverlay")))
 	await _wait(1.0)
 	_check("it names the deal", _text("ResultTitle").ends_with("won deal 1"), _text("ResultTitle"))
-	rows_text = _labels_in("ResultRows")
+	var rows_text := _labels_in("ResultRows")
 	_check("and the chips that changed hands", rows_text.contains("-20 chips (140)") and rows_text.contains("+20 chips (180)"), rows_text)
 	await _shot("deals-result")
 	_check("the second deal follows by itself", await _until(func() -> bool: return Game.status() == "playing" and int(Game.state.get("round", 0)) == 2, 8.0) and _text("RoomLabel").contains("Deal 2 of 2"), _text("RoomLabel"))
@@ -157,15 +157,15 @@ func _run() -> void:
 	await _wait(0.5)
 
 	# ---------- a player from another region ----------
-	await _press("PointsTile")
+	await _press("CloseJokerTile")
 	await _wait(0.4)
 	(_node("StakeSlider") as HSlider).value = 0  # a free table
-	_check("a free Points table", _shown("FreeLabel"))
+	_check("a free Close Joker table", _shown("FreeLabel"))
 	await _press("CreateButton")
 	await _until(func() -> bool: return _shown("CancelSearchButton"))
 	# A phone on New York time: five and a half hours and more from here
 	var far_zone := GameClient.time_zone_minutes() - 600
-	var far: Dictionary = await b.socket.request("findMatch", {"gameType": "points", "maxPlayers": 2, "pointValue": 0, "timezone": far_zone})
+	var far: Dictionary = await b.socket.request("findMatch", {"gameType": "close_joker", "maxPlayers": 2, "stake": 0, "timezone": far_zone})
 	_check("the far player is searching", far.get("ok", false), str(far))
 	await _wait(1.0)
 	_check("players far apart are not matched at first", Game.searching() and _text("SearchScope").contains("your region"), _text("SearchScope"))

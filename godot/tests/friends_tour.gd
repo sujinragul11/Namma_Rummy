@@ -50,14 +50,33 @@ func _run() -> void:
 	_check("registered and connected", await _until(func() -> bool: return Game.is_logged_in() and Game.is_online()))
 	await _wait(0.6)
 	_check("the menu has a Friends button", _shown("FriendsButton") and _node("FriendsButton").text == "Friends", _text("FriendsButton"))
-	_check("the bottom bar is on screen", _on_screen("PrivacyButton") and _on_screen("TermsButton") and _on_screen("LogoutButton"))
-	_check("the bars hold Profile, Logout and How to play", _on_screen("ProfileButton") and _on_screen("LogoutButton") and _on_screen("HelpButton"))
-	_check("the four tiles are on screen", _on_screen("PointsTile") and _on_screen("PoolTile") and _on_screen("DealsTile") and _on_screen("FriendsTile"))
+	_check("the bottom bar holds Friends only (the profile opens from the picture at the top)", _on_screen("FriendsButton") and not _has("ProfileButton") and _on_screen("AvatarPill") and not _shown("PrivacyButton") and not _shown("TermsButton") and not _shown("LogoutButton"))
+	_check("the top bar holds How to play and Settings, and no sound buttons", _on_screen("HelpButton") and _on_screen("AccountButton") and not _shown("MusicSwitch"))
+	await _press("AccountButton")
+	await _wait(0.4)
+	_check("the cog opens Settings: sound, privacy policy, terms and Log out", _on_screen("MusicToggle") and _on_screen("SoundToggle") and _on_screen("SettingsPrivacyButton") and _on_screen("SettingsTermsButton") and _on_screen("LogoutButton") and not _has_profile())
+	var music_was := Sound.music_on
+	await _press("MusicToggle")
+	_check("the music switch works and says so", Sound.music_on != music_was and _text("MusicToggle") == ("ON" if Sound.music_on else "OFF"), _text("MusicToggle"))
+	await _press("MusicToggle")
+	await _shot("settings")
+	await _press("LogoutButton")
+	await _wait(0.3)
+	_check("Log out asks first", question_box.visible and question_box.dialog_text.begins_with("Log out of Namma Rummy?"), question_box.dialog_text)
+	question_box.get_cancel_button().pressed.emit()
+	await _wait(0.2)
+	_check("and nothing happens without a yes", Game.is_logged_in())
+	await _press("SettingsCloseButton")
+	await _wait(0.2)
+	_check("the close tag closes Settings", not _shown("LogoutButton"))
+	_check("the four tiles are on screen", _on_screen("CloseJokerTile") and _on_screen("PoolTile") and _on_screen("DealsTile") and _on_screen("FriendsTile"))
 
 	# ---------- the boxes the tiles open ----------
 	await _press("PoolTile")
 	await _wait(0.4)
 	_check("a game tile opens the table setup for that game", _shown("CreateButton") and _text("SetupTitle") == "Pool Rummy" and (_node("TypeOption") as OptionButton).selected == 1, _text("SetupTitle"))
+	var pools: Array = (_node("VariantChips") as Control).get_children().filter(func(chip: Control) -> bool: return chip.visible).map(func(chip: Control) -> String: return chip.get("text"))
+	_check("Pool offers 101 and 201; Close Joker has its own tile now", pools == ["101 Points", "201 Points"], str(pools))
 	await _shot("table-setup")
 	await _press("SetupCloseButton")
 	await _wait(0.2)
@@ -76,7 +95,7 @@ func _run() -> void:
 	await _press("CreateTableButton")
 	await _wait(0.4)
 	_check("Create table opens the setup for a private table", _shown("CreateButton") and _text("CreateButton") == "Create Table" and not _shown("CodeEdit"), _text("CreateButton"))
-	_check("its tabs offer the game modes", _shown("ModeTabs") and (_node("ModeTabs") as Control).get_child_count() >= 2 and _text("SetupTitle") == "Points Rummy", _text("SetupTitle"))
+	_check("its tabs offer the game modes, Close Joker first", _shown("ModeTabs") and (_node("ModeTabs") as Control).get_child_count() == 3 and _text("SetupTitle") == "Close Joker Rummy", _text("SetupTitle"))
 	(_node("StakeSlider") as HSlider).value = 0  # a free table, so the balance stays as it is
 	await _press("CreateButton")
 	_check("the private table opens in the lobby", await _until(func() -> bool: return _has("CodeLabel") and _text("CodeLabel").length() == 6))
@@ -84,8 +103,9 @@ func _run() -> void:
 	Game.leave()
 	_check("and leaving it goes back to the menu", await _until(func() -> bool: return _has("MenuPanel") and _shown("MenuPanel")))
 	await _wait(0.3)
-	await _press("PointsTile")
+	await _press("CloseJokerTile")
 	await _wait(0.4)
+	_check("the Close Joker tile opens the Close Joker setup", _text("SetupTitle") == "Close Joker Rummy" and (_node("TypeOption") as OptionButton).selected == 2, _text("SetupTitle"))
 	_check("a game tile's setup plays an ordinary table", _text("CreateButton") == "Play Now", _text("CreateButton"))
 	await _press("SetupCloseButton")
 	await _wait(0.2)
@@ -265,7 +285,7 @@ func _run() -> void:
 
 	# ---------- the profile: four games played by now, all won because the others left ----------
 	await _wait(0.8)  # the last result is written to the database
-	await _press("ProfileButton")
+	_tap(_middle(_node("AvatarPill")))  # the only way to the profile
 	_check("the profile opens", await _until(func() -> bool: return _has("StatsRow")))
 	_check("it counts the games played and won", await _until(func() -> bool: return _text("PlayedValue") == "4") and _text("WonValue") == "4" and _text("RateValue") == "100%", "%s played, %s won, %s" % [_text("PlayedValue"), _text("WonValue"), _text("RateValue")])
 	_check("it shows the coins", _text("CoinsValue") == Ui.coins_text(Game.coins), _text("CoinsValue"))
@@ -427,6 +447,11 @@ func _tap(at: Vector2) -> void:
 
 func _middle(control: Control) -> Vector2:
 	return control.get_global_transform_with_canvas() * (control.size / 2.0)
+
+
+# True while the profile panel is open.
+func _has_profile() -> bool:
+	return get_tree().get_first_node_in_group(FriendsPanel.BACK_GROUP) is ProfilePanel
 
 
 # Play with Friends > Create Table: the setup box for a private table.

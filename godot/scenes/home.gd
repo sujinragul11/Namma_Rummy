@@ -6,6 +6,9 @@ extends Control
 ## at the top with a few round buttons, big tiles in the middle open the kinds of game, and
 ## a bar of small buttons runs along the bottom. A game tile opens a box to set up the table;
 ## the friends tile opens the room-code form.
+##
+## Points Rummy is not on the menu (since 2026-10-14 the big tile is Close Joker). It stays in
+## GAME_TYPES because the server still plays it and the table still shows it.
 
 const GAME_TYPES := [
 	["Points", "points"], ["Pool 101", "pool"], ["Close Joker 240", "close_joker"],
@@ -22,11 +25,12 @@ const FIRST_POINT_VALUE := 10
 # more than one shows a row of marks to pick between them, under the heading given here, with
 # the names in VARIANT_NAMES.
 const MODES := [
-	["Points Rummy", [0], ""],
-	["Pool Rummy", [1, 5, 2], "SELECT POOL"],
+	["Close Joker", [2], ""],
+	["Pool Rummy", [1, 5], "SELECT POOL"],
 	["Deals Rummy", [3, 4], "SELECT DEALS"],
 ]
-const VARIANT_NAMES := {1: "101 Points", 5: "201 Points", 2: "240 · Close Joker", 3: "2 Deals", 4: "3 Deals"}
+# Close Joker's has no mark of its own (it is alone in its tab); it names the search
+const VARIANT_NAMES := {1: "101 Points", 5: "201 Points", 2: "240 Points", 3: "2 Deals", 4: "3 Deals"}
 const SETUP_BROWN := Color("8d6e63")
 const TAB_CREAM := Color("f7eed9")
 const TAB_GOLD := Color("f6c232")
@@ -46,13 +50,13 @@ A card is cut as the joker every round. Every card of that rank is wild, togethe
 
 Points: J, Q, K and A count 10, number cards their value, jokers 0. The winner scores 0; a losing hand counts its loose cards, up to 80. Dropping out costs 20 before your first turn and 40 after. A wrong declaration costs 80.
 
-Points Rummy is one round, played for coins a point: every loser pays the winner their points times the table's value. Pool Rummy goes round after round: reach 101 (or 201) and you are out; the last player left wins. Close Joker is pool to 240, and the joker lies face down until you have made a pure sequence. Deals Rummy is 2 or 3 deals played for chips: the winner of a deal takes each loser's points in chips, and the most chips after the last deal win.
+Close Joker goes round after round like Pool Rummy: reach 240 and you are out; the last player left wins. The joker is cut face down. You see it, and which cards are wild, only once your own cards hold a pure sequence; a green dot on a player's picture shows who has seen it. Pool Rummy is the same without the hidden joker: reach 101 (or 201) and you are out. Deals Rummy is 2 or 3 deals played for chips: the winner of a deal takes each loser's points in chips, and the most chips after the last deal win.
 
 Play Now finds players for you, the ones in your region first: no room code needed. To play with your friends, open a private table under Play with Friends and give them its room code.
 
 When someone declares, everyone else gets 15 seconds to arrange their cards before they are counted. Every turn has 30 seconds.
 
-Coins are play tokens with no cash value. At a Pool or Deals table every player pays the entry on sitting down, and the winner of the game takes everything paid in."""
+Coins are play tokens with no cash value. Every player pays the table's entry on sitting down, and the winner of the game takes everything paid in."""
 
 var _registering := false
 var _keyboard_height := 0
@@ -64,6 +68,7 @@ var _stake_picked := false  # false until the player has chosen an entry themsel
 var _point_index := GameClient.POINT_VALUES.find(FIRST_POINT_VALUE)  # the value of a point chosen
 var _point_picked := false  # the same for the value of a point
 var _search: MatchSearch  # the box shown while "Play Now" looks for players
+var _settings: SettingsBox  # behind the cog: sound, the privacy policy and terms, logging out
 var _coins_label: CoinLabel
 var _stake_coins: CoinLabel  # the amount in the pill above the slider
 var _player_chips: Array[ChoiceChip] = []  # one per PLAYER_CHOICES entry
@@ -98,7 +103,7 @@ var _private_table := false
 @onready var _coin_pill: PanelContainer = %CoinPill
 @onready var _help_button: Button = %HelpButton
 @onready var _account_button: Button = %AccountButton
-@onready var _points_tile: GameTile = %PointsTile
+@onready var _close_joker_tile: GameTile = %CloseJokerTile
 @onready var _pool_tile: GameTile = %PoolTile
 @onready var _deals_tile: GameTile = %DealsTile
 @onready var _friends_tile: GameTile = %FriendsTile
@@ -133,10 +138,8 @@ var _private_table := false
 
 @onready var _bottom_bar: PanelContainer = %BottomBar
 @onready var _friends_button: Button = %FriendsButton
-@onready var _profile_button: Button = %ProfileButton
 @onready var _privacy_button: Button = %PrivacyButton
 @onready var _terms_button: Button = %TermsButton
-@onready var _logout_button: Button = %LogoutButton
 @onready var _sound_switches: Control = %SoundSwitches
 
 
@@ -172,7 +175,7 @@ func _ready() -> void:
 	_submit_button.pressed.connect(_on_submit)
 	_password_edit.text_submitted.connect(_on_submit.unbind(1))
 	_switch_button.pressed.connect(_on_switch_mode)
-	_points_tile.pressed.connect(_open_setup.bind(0))
+	_close_joker_tile.pressed.connect(_open_setup.bind(2))
 	_pool_tile.pressed.connect(_open_setup.bind(1))
 	_deals_tile.pressed.connect(_open_setup.bind(3))
 	_friends_tile.pressed.connect(_join_overlay.open)
@@ -185,12 +188,9 @@ func _ready() -> void:
 	_code_edit.text_submitted.connect(_on_join.unbind(1))
 	_invite_friends_button.pressed.connect(_open_friends)
 	_help_button.pressed.connect(_rules_overlay.open)
-	_account_button.pressed.connect(_open_profile)
+	_account_button.pressed.connect(_open_settings)
 	_avatar_pill.gui_input.connect(_on_pill_input.bind(_avatar_pill))
-	_coin_pill.gui_input.connect(_on_pill_input.bind(_coin_pill))
 	_friends_button.pressed.connect(_open_friends)
-	_profile_button.pressed.connect(_open_profile)
-	_logout_button.pressed.connect(Game.logout)
 	_privacy_button.pressed.connect(_open_page.bind("/privacy"))
 	_terms_button.pressed.connect(_open_page.bind("/terms"))
 
@@ -203,6 +203,13 @@ func _ready() -> void:
 	_search = MatchSearch.new()
 	add_child(_search)
 	_search.closed.connect(Game.cancel_match)  # closing the box ends the search
+	_settings = SettingsBox.new()
+	add_child(_settings)
+	_settings.get_node("Box/SettingsColumn/AvatarSlot").add_child(AvatarEditor.new())
+	# The top bar shows the player's photo once it is here, and a new one as soon as it is saved
+	Game.avatar_loaded.connect(func(user_id: String) -> void:
+		if user_id == Game.player_id:
+			_avatar.queue_redraw())
 	_refresh_coins()
 	_brand.resized.connect(_fit_logo)
 	_brand.sort_children.connect(_on_brand_sorted)
@@ -254,7 +261,7 @@ func _build_setup_widgets() -> void:
 		_mode_tabs.append(tab)
 	_mode_tabs_row.custom_minimum_size.x = 700.0
 
-	# The marks for the games inside a tab (101 or 240 for the pool games); one group for all,
+	# The marks for the games inside a tab (101 or 201 for the pool games); one group for all,
 	# since only one tab's marks are on show at a time
 	var variant_group := ButtonGroup.new()
 	for mode: Array in MODES:
@@ -466,7 +473,7 @@ func _play_entrance() -> void:
 	if Game.is_logged_in():
 		# The tiles deal themselves out one after another
 		for index in 4:
-			Ui.pop_in([_points_tile, _pool_tile, _deals_tile, _friends_tile][index], 0.06 * index)
+			Ui.pop_in([_close_joker_tile, _pool_tile, _deals_tile, _friends_tile][index], 0.06 * index)
 	else:
 		Ui.pop_in(_logo)
 		Ui.pop_in(_auth_panel, 0.08)
@@ -511,10 +518,12 @@ func _refresh() -> void:
 		news.append("1 request" if requests == 1 else "%d requests" % requests)
 	_friends_button.text = "  ·  ".join(news)
 
-	# The bottom bar: a dark strip of buttons under the menu; only the links under the login form
-	for button: Control in [_friends_button, _profile_button, _logout_button]:
-		button.visible = logged_in
-	_sound_switches.visible = not logged_in  # the menu has its own switches in the top bar
+	# The bottom bar: a dark strip with Friends under the menu (the profile opens from the
+	# player's picture at the top). Under the login form it holds the privacy policy, the terms
+	# and the sound switches instead; logged in, those are in Settings, behind the cog.
+	_friends_button.visible = logged_in
+	for link: Control in [_privacy_button, _terms_button, _sound_switches]:
+		link.visible = not logged_in
 	_bottom_bar.add_theme_stylebox_override("panel", Ui.box(Color(0, 0, 0, 0.38), 0, 24, 10) if logged_in else StyleBoxEmpty.new())
 
 
@@ -650,9 +659,10 @@ func _open_setup(type_index: int, private: bool = false) -> void:
 	_setup_overlay.open()
 
 
-# "Create table" in the Private Table box: the setup box takes over for a private table
+# "Create table" in the Private Table box: the setup box takes over for a private table,
+# on the first tab's game
 func _on_create_table() -> void:
-	_open_setup(0, true)
+	_open_setup(MODES[0][1][0], true)
 
 
 # "Create Table" opens a private table and its lobby, with a room code to give to friends.
@@ -702,12 +712,17 @@ func _open_friends() -> void:
 	FriendsPanel.open(self)
 
 
+func _open_settings() -> void:
+	_join_overlay.close()  # one box at a time
+	_settings.open()
+
+
 func _open_profile() -> void:
 	ProfilePanel.open(self)
 
 
-# A tap on the name or the coins opens the profile, where both are explained.
-# Like a button, it reacts when the finger lifts, not when it touches down: a panel opened on
+# A tap on the player's picture or name opens the profile: the only way to it (the user's
+# choice, 2026-10-14; the coins beside it open nothing). Like a button, it reacts when the finger lifts, not when it touches down: a panel opened on
 # touch-down is not laid out yet when that same finger lifts, all its buttons still lie in the
 # top-left corner under the finger, and the lift pressed one of them ("Delete account").
 func _on_pill_input(event: InputEvent, pill: Control) -> void:
@@ -725,13 +740,18 @@ func _open_page(path: String) -> void:
 
 # ---------- pictures drawn in code ----------
 
-# The player's avatar: a coloured disc with the first letter of the name, as at the table.
+# The player's avatar: their photo, or a coloured disc with the first letter of the name, as
+# at the table.
 func _draw_avatar() -> void:
 	var center := _avatar.size / 2.0
 	var radius := minf(center.x, center.y) - AVATAR_RING
 	var username := str(Game.user.get("username", ""))
 	var color: Color = PlayerBadge.AVATAR_COLORS[absi(hash(username)) % PlayerBadge.AVATAR_COLORS.size()]
 	_avatar.draw_circle(center, radius + AVATAR_RING, Ui.GOLD, true, -1.0, true)
+	var photo := Game.avatar_texture(Game.player_id, Game.my_avatar())
+	if photo != null:
+		PlayerBadge.draw_photo(_avatar, center, radius, photo)
+		return
 	_avatar.draw_circle(center, radius, color, true, -1.0, true)
 	var font := Ui.bold_font
 	var font_size := int(radius * 1.1)

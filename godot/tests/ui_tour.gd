@@ -96,12 +96,13 @@ func _run() -> void:
 	_check("the menu shows the connection", _node("StatusLabel").text == "Online", _node("StatusLabel").text)
 	_check("a new player has 50,000 coins, shown beside the welcome", await _until(func() -> bool: return Game.coins == 50000) and _node("CoinsLabel")._label.text == "50,000" and _node("CoinsLabel").is_visible_in_tree(), _node("CoinsLabel")._label.text)
 	_check("the entry offered first is the 500 coin one", _node("StakeOption").get_item_text(_node("StakeOption").selected) == "500 coins" and _node("StakeOption").item_count == 8, _node("StakeOption").get_item_text(_node("StakeOption").selected))
-	_check("the menu still fits on the screen", _node("LogoutButton").get_global_rect().end.y <= get_viewport().get_visible_rect().size.y and _node("PrivacyButton").get_global_rect().end.y <= get_viewport().get_visible_rect().size.y, "%s / %s" % [_node("LogoutButton").get_global_rect().end.y, _node("PrivacyButton").get_global_rect().end.y])
+	_check("the menu still fits on the screen", _node("FriendsButton").get_global_rect().end.y <= get_viewport().get_visible_rect().size.y and _node("AvatarPill").get_global_rect().position.y >= 0.0, "%s / %s" % [_node("FriendsButton").get_global_rect().end.y, _node("AvatarPill").get_global_rect().position.y])
 	await _shot("menu")
 
 	# ---------- game 1: fixed deal, group cards, declare ----------
 	_set_rigged(true)
 	await _open_private_table()
+	_choose_points_table()
 	_check("a Points table is played for coins a point, 10 offered first", _node("StakeCoins")._label.text == "10 per point" and _node("StakeLabel").text == "SELECT POINT VALUE", _node("StakeCoins")._label.text)
 	await _press("CreateButton")
 	_check("the lobby opens", await _until(func() -> bool: return _has("CodeLabel") and _node("CodeLabel").text.length() == 6))
@@ -355,7 +356,7 @@ func _run() -> void:
 func _play_opponent_declares(b: GameClient) -> void:
 	var opponent := str(b.user.get("username", ""))
 	await _open_private_table()
-	(_node("TypeOption") as OptionButton).select(0)  # a points game
+	_choose_points_table()
 	_set_rigged(true)
 	await _press("CreateButton")
 	_check("show: the lobby opens", await _until(func() -> bool: return _has("CodeLabel") and _node("CodeLabel").text.length() == 6))
@@ -409,8 +410,7 @@ func _play_close_joker(b: GameClient) -> void:
 	var question_box: ConfirmationDialog = Ui.get_node("QuestionBox")
 	await _open_private_table()
 	var types: OptionButton = _node("TypeOption")
-	_check("the menu offers Close Joker", types.item_count == 6 and types.get_item_text(2) == "Close Joker 240", str(types.item_count))
-	types.select(2)  # a tap would have to land inside the drop-down list
+	_check("a private table offers Close Joker first", types.get_item_text(types.selected) == "Close Joker 240" and _node("SetupTitle").text == "Close Joker Rummy", _node("SetupTitle").text)
 	_set_rigged(true, "closed")
 	await _press("CreateButton")
 	_check("close joker: the lobby opens", await _until(func() -> bool: return _has("CodeLabel") and _node("CodeLabel").text.length() == 6))
@@ -644,6 +644,15 @@ func _open_private_table() -> void:
 	await _wait(0.4)
 	await _press("CreateTableButton")
 	await _wait(0.4)
+
+
+# Points Rummy left the menu on 2026-10-14 (Close Joker took its tile), but the server still
+# plays it and the table still shows it: the tour reaches it through the setup box's hidden
+# game option, and has the coins on show follow.
+func _choose_points_table() -> void:
+	(_node("TypeOption") as OptionButton).select(0)
+	var home: Variant = _screen()  # untyped: the tour looks inside the home script
+	home._show_stake()
 
 
 ## Taps a button of one of the screens. A button a finger cannot reach fails the tour.

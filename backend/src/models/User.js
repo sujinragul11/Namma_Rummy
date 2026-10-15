@@ -57,19 +57,22 @@ class User {
     return result.rows[0];
   }
 
+  // `avatar` is the profile photo's version, 0 when there is none (see Avatar)
   static async findById(id) {
     const result = await db.query(
-      `SELECT 
-        id,
-        username,
-        email,
-        phone,
-        coins,
-        total_games,
-        games_won,
-        created_at,
-        updated_at
-       FROM users WHERE id = $1`,
+      `SELECT
+        u.id,
+        u.username,
+        u.email,
+        u.phone,
+        u.coins,
+        u.total_games,
+        u.games_won,
+        u.created_at,
+        u.updated_at,
+        CASE WHEN a.image IS NULL THEN 0 ELSE a.version END AS avatar
+       FROM users u LEFT JOIN avatars a ON a.user_id = u.id
+       WHERE u.id = $1`,
       [id]
     );
     return result.rows[0];

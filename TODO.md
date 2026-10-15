@@ -74,6 +74,12 @@
 - [ ] Put the backend on a public server with https; fill in `LEGAL_OWNER` and `SUPPORT_EMAIL`
 - [ ] Set `RELEASE_SERVER_URL` in `godot/autoload/config.gd`, then run `build-android.bat`
 - [ ] Google Play Console account; Apple Developer Program account and its Team ID
+- [ ] AdMob account: the App ID into `godot/project.godot` ([admob] general/android/app_id)
+      and one interstitial ad unit into `RELEASE_INTERSTITIAL_ID` in `godot/autoload/config.gd`;
+      until then store builds show no ads (see "Ads" in README.md)
+- [ ] See Google's test ads on a real phone with a debug build: before sitting down, between
+      rounds, after a finished game. On the PC only the timing was tested (stand-in ads), and
+      an Android 16 emulator only got as far as "Initialized AdMob" (too slow on this PC)
 - [ ] A Mac with Xcode for the last step of the iOS build
 - [ ] Screenshots for both stores, taken from the finished game
 - [ ] "Forgot password": there is no way yet for a player to reset a password

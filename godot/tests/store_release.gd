@@ -40,11 +40,16 @@ func _run() -> void:
 	Game.register(username, username + "@test.local", "9%09d" % (randi() % 1000000000), PASSWORD)
 	_check("registered and connected", await _until(func() -> bool: return Game.is_logged_in() and Game.is_online()))
 	await _wait(0.3)
-	_check("the menu has Logout and Profile", _shown("MenuPanel") and _shown("LogoutButton") and _shown("ProfileButton"))
-	_press("ProfileButton")
+	_check("the menu has the player's picture (the way to the profile) and Settings", _shown("MenuPanel") and _shown("AvatarPill") and _shown("AccountButton") and _node("ProfileButton") == null)
+	_press("AccountButton")
+	await _wait(0.3)
+	_check("Settings has Log out", _shown("LogoutButton"))
+	_check("the privacy policy can be opened when logged in, from Settings", _shown("SettingsPrivacyButton") and _shown("SettingsTermsButton"))
+	_press("SettingsCloseButton")
+	await _wait(0.2)
+	_lift_on("AvatarPill")
 	_check("the profile opens", await _until(func() -> bool: return _node("StatsRow") != null))
 	_check("the profile offers Delete account", _shown("DeleteAccountButton"))
-	_check("the privacy policy can be opened when logged in", _shown("PrivacyButton") and _shown("TermsButton"))
 
 	# ---------- a wrong password deletes nothing ----------
 	_press("DeleteAccountButton")
@@ -105,6 +110,19 @@ func _press(button_name: String) -> void:
 		_check("%s can be pressed" % button_name, false)
 		return
 	button.pressed.emit()
+
+
+# The release of a tap in the middle of a control that is not a button (the player's picture).
+func _lift_on(node_name: String) -> void:
+	var control := _node(node_name) as Control
+	if control == null or not control.is_visible_in_tree():
+		_check("%s can be tapped" % node_name, false)
+		return
+	var lift := InputEventMouseButton.new()
+	lift.button_index = MOUSE_BUTTON_LEFT
+	lift.pressed = false
+	lift.position = control.size / 2.0
+	control.gui_input.emit(lift)
 
 
 func _wait(seconds: float) -> void:

@@ -1,5 +1,6 @@
 const db = require('./db');
 const Coins = require('../models/Coins');
+const Avatar = require('../models/Avatar');
 
 const createTables = async () => {
   try {
@@ -112,6 +113,9 @@ const createTables = async () => {
 
     // Private tables, for playing with friends by room code only
     await db.query(`ALTER TABLE games ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT FALSE`);
+
+    // Profile photos; the server also does this at every start
+    await Avatar.ensureSchema();
 
     console.log('✅ All tables created successfully!');
 

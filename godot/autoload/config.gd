@@ -12,6 +12,11 @@ extends Node
 ## The public game server the app store builds play on. It must start with https://.
 ## The release build scripts refuse to build while this is empty.
 const RELEASE_SERVER_URL := "https://namma-rummy.onrender.com"
+## The game's own AdMob ad unit for full-screen ads (it contains a "/"), from the AdMob account.
+## Store builds show ads only once this is filled in, together with the game's AdMob App ID
+## (it contains a "~") in project.godot under admob/general/android/app_id. Test builds on a
+## phone always show Google's test ads instead. See autoload/ads.gd for when ads show.
+const RELEASE_INTERSTITIAL_ID := ""
 const DEFAULT_SERVER_URL := "http://127.0.0.1:3001"
 ## Where a test build on a phone looks first. On a phone 127.0.0.1 is the phone itself, so
 ## the default there is the address a Windows PC always has on its own Mobile hotspot.

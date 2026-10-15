@@ -109,7 +109,7 @@ func _rebuild() -> void:
 				_button("Accept", Ui.PRIMARY, Game.answer_friend.bind(id, "accept")),
 				_button("Decline", Ui.SLATE, Game.answer_friend.bind(id, "decline")),
 				_button("Block", Ui.SLATE, _confirm_block.bind(id, username)),
-			])
+			], request)
 
 	var online := Game.friends_online()
 	_add_heading("Friends  ·  %d online" % online if online > 0 else "Friends")
@@ -129,14 +129,14 @@ func _rebuild() -> void:
 			invite.set_meta("free", not invite.disabled)
 			buttons.append(invite)
 		buttons.append(_button("Remove", Ui.SLATE, _confirm_remove.bind(id, username)))
-		_add_row(username, "At your table" if _at_my_table(id) else STATUS_TEXT.get(status, "Offline"), status, buttons)
+		_add_row(username, "At your table" if _at_my_table(id) else STATUS_TEXT.get(status, "Offline"), status, buttons, friend)
 
 	if not Game.friend_asked.is_empty():
 		_add_heading("Waiting for an answer")
 		for asked: Dictionary in Game.friend_asked:
 			_add_row(str(asked.get("username", "Player")), "has not answered yet", "", [
 				_button("Cancel", Ui.SLATE, Game.remove_friend.bind(str(asked.get("id", "")))),
-			])
+			], asked)
 
 	if not Game.recent_players.is_empty():
 		_add_heading("Played with recently")
@@ -144,7 +144,7 @@ func _rebuild() -> void:
 			var username := str(player.get("username", "Player"))
 			_add_row(username, "you met at a table", "", [
 				_button("Add friend", Ui.PRIMARY, Game.add_friend.bind(username)),
-			])
+			], player)
 	_refresh_buttons()
 
 
@@ -213,7 +213,8 @@ func _add_note(text: String) -> void:
 
 
 # One player: a status dot, the avatar with two lines of text, and the buttons on the right.
-func _add_row(username: String, info: String, status: String, buttons: Array) -> void:
+# `who` is the player's entry in the list, for their photo.
+func _add_row(username: String, info: String, status: String, buttons: Array, who: Dictionary = {}) -> void:
 	var row := HBoxContainer.new()
 	row.name = "Row_" + username
 	row.add_theme_constant_override("separation", 12)
@@ -229,6 +230,7 @@ func _add_row(username: String, info: String, status: String, buttons: Array) ->
 	badge.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	badge.name_width = NAME_WIDTH
 	badge.show_player(username, info, false, status == "offline")
+	badge.show_photo(str(who.get("id", "")), int(who.get("avatar", 0)))
 	row.add_child(badge)
 
 	for button: Button in buttons:

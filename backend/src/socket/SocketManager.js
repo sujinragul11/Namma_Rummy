@@ -4,6 +4,7 @@ const GameEngine = require('../game/GameEngine');
 const Game = require('../models/Game');
 const User = require('../models/User');
 const Coins = require('../models/Coins');
+const Avatar = require('../models/Avatar');
 const db = require('../database/db');
 const config = require('../config');
 const { FriendsManager, WatchedMap } = require('./FriendsManager');
@@ -30,6 +31,9 @@ class SocketManager {
     this.cleanupTimers = new Map(); // gameId -> pending removal
     this.snapshots = false; // true once the database can hold games in progress
     this.snapshotWrites = new Map(); // gameId -> the write of that game still under way
+    // userId -> profile photo version (0: none), read when the player connects and kept up
+    // to date by avatarChanged; table states carry it for each player
+    this.avatars = new Map();
 
     // Redis for room persistence
     this.redis = this.connectRedis();
@@ -89,6 +93,11 @@ class SocketManager {
       await Coins.ensureSchema();
     } catch (error) {
       console.error('Failed to prepare the database for coins:', error.message);
+    }
+    try {
+      await Avatar.ensureSchema();
+    } catch (error) {
+      console.error('Failed to prepare the database for profile photos:', error.message);
     }
 
     const restored = [];
@@ -249,6 +258,7 @@ class SocketManager {
 
         socket.data.userId = String(user.id);
         socket.data.username = user.username;
+        this.avatars.set(String(user.id), user.avatar || 0);
         next();
       } catch (error) {
         next(new Error('Authentication required'));
@@ -435,7 +445,7 @@ class SocketManager {
       // Ask for the current state again
       handle('reconnectGame', async () => {
         const gameEngine = this.requireGame(userId);
-        return { gameState: gameEngine.getGameState(userId) };
+        return { gameState: this.gameStateFor(gameEngine, userId) };
       });
 
       // Leave game
@@ -873,8 +883,26 @@ class SocketManager {
   broadcastState(gameEngine) {
     for (const [playerId, player] of gameEngine.players) {
       if (player.left) continue;
-      this.io.to(this.userRoom(playerId)).emit('gameState', gameEngine.getGameState(playerId));
+      this.io.to(this.userRoom(playerId)).emit('gameState', this.gameStateFor(gameEngine, playerId));
     }
+  }
+
+  // One player's view of the table, with each player's profile photo version (0: none)
+  gameStateFor(gameEngine, userId) {
+    const state = gameEngine.getGameState(userId);
+    for (const player of state.players) player.avatar = this.avatars.get(String(player.id)) || 0;
+    return state;
+  }
+
+  // A player saved or removed their photo: the table they sit at and their friends' lists
+  // show the new one at once
+  avatarChanged(userId, version) {
+    this.avatars.set(userId, version);
+    const gameEngine = this.getUserGame(userId);
+    if (gameEngine) this.broadcastState(gameEngine);
+    this.friends.contactsOf(userId)
+      .then((contacts) => this.friends.pushAll(contacts))
+      .catch((error) => console.error('Failed to tell friends about a photo:', error.message));
   }
 
   emitToGame(gameEngine, event, payload, exceptUserId = null) {

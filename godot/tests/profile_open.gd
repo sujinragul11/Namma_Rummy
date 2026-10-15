@@ -25,9 +25,19 @@ func _run() -> void:
 	_check("the menu is shown", await _until(func() -> bool: return _has("AvatarPill") and _node("AvatarPill").is_visible_in_tree() and Game.is_online()))
 	await _wait(0.8)
 
-	for opener: String in ["AvatarPill", "CoinPill", "AccountButton"]:
-		await _open_with(opener, true)
+	await _open_with("AvatarPill", true)
 	await _open_with("AvatarPill", false)
+	# The picture is the only way to the profile (the user's choice, 2026-10-14): neither the
+	# bottom bar nor the coins beside the picture lead there
+	_check("the bottom bar has no Profile button", _main.find_child("ProfileButton", true, false) == null)
+	var coins := _middle(_node("CoinPill"))
+	_touch(coins, true)
+	await get_tree().process_frame
+	_touch(coins, false)
+	await _wait(0.6)
+	_check("a finger on the coins opens nothing", get_tree().get_first_node_in_group(FriendsPanel.BACK_GROUP) == null and _open_boxes().is_empty())
+	# The cog opens Settings (with Log out in it), and its lift must not press anything there either
+	await _open_with("AccountButton", true, "SettingsBox")
 
 	# A finger that touches the avatar and slides off it before lifting has changed its mind
 	var from := _middle(_node("AvatarPill"))
@@ -46,7 +56,7 @@ func _run() -> void:
 	get_tree().quit(1 if _failed > 0 or _passed == 0 else 0)
 
 
-func _open_with(opener: String, finger: bool) -> void:
+func _open_with(opener: String, finger: bool, expected: String = "ProfilePanel") -> void:
 	var how := "a finger" if finger else "a mouse click"
 	var at := _middle(_node(opener))
 	if finger:
@@ -60,7 +70,8 @@ func _open_with(opener: String, finger: bool) -> void:
 	await _wait(0.6)
 	var panel: Node = get_tree().get_first_node_in_group(FriendsPanel.BACK_GROUP)
 	var boxes := _open_boxes()
-	_check("%s on %s opens the profile" % [how, opener], panel is ProfilePanel, str(panel))
+	var right_one := panel is SettingsBox if expected == "SettingsBox" else panel is ProfilePanel
+	_check("%s on %s opens the %s" % [how, opener, "settings" if expected == "SettingsBox" else "profile"], right_one, str(panel))
 	var delete_button := _main.find_child("DeleteAccountButton", true, false) as Control
 	_check("%s on %s opens no question with it" % [how, opener], boxes.is_empty(), "%s; finger at %s; Delete account button at %s" % [", ".join(boxes), at, delete_button.get_global_rect() if delete_button != null else "-"])
 	Ui.close_dialogs()
