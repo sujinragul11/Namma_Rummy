@@ -118,6 +118,7 @@ rummy-multiplayer/
 ├── store/                         # Store listing texts, form answers and graphics
 ├── docs/                          # Static web pages: the privacy policy (publish with GitHub Pages)
 ├── build-android.bat              # Builds the .aab for Google Play and an .apk for a phone
+├── sign-android.bat               # Signs a bundle that was built without the upload key
 └── README.md
 ```
 
@@ -586,6 +587,10 @@ The store texts, the graphics and the answers for the store forms are in `store/
 
 `build-android.bat debug` makes a test `.apk` that keeps the Server field, for playing
 against the backend on your PC before the public server exists.
+
+`sign-android.bat` signs a bundle that was built without the key, such as
+`build/namma-rummy-<version>-<code>-unsigned.aab` made by a helper that could not ask for
+your password. It asks for the password and writes the signed `.aab` next to it.
 
 **Ads (Google AdMob)**
 

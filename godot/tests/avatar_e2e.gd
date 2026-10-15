@@ -8,6 +8,9 @@ extends Node
 ## Run against a TEST server (it registers throwaway accounts); tests/test_server.js is one:
 ##   godot --headless --path . res://tests/avatar_e2e.tscn -- --server=http://127.0.0.1:3101 --mute
 ## The Game autoload plays the second player, since badges and the editor read it.
+## One run per server start: the server allows 30 photo changes per address in 10 minutes,
+## refused ones included, and a run makes about 9, so a second run soon after on the same
+## server (or one beside other tests that change photos) fails with "Too many photo changes".
 
 const PASSWORD := "secret12"
 
