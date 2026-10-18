@@ -15,7 +15,8 @@ A real-time multiplayer Rummy card game built with Node.js backend and React Nat
 - **Persistent Games**: Finished games and results are saved to PostgreSQL database
 - **Games survive a server restart**: every game in progress is kept in the database after each move; when the server comes back the players are put back at their table with the same cards, and the turn clock starts again
 - **Redis (optional)**: a second place to keep running games; not needed
-- **Secure Authentication**: JWT-based user authentication, for the API and for the game socket
+- **Stay logged in**: a login lasts until the player logs out, through closing the app, restarts and days away. The server keeps each login (only a hash of its token) and checks it on every request and connection, so logging out, deleting the account or `npm run revoke-logins` ends it at once
+- **Things to throw**: a small button beside each opponent at the table opens 20 playful items (an aruval, a knife, a ghost, a cake, chocolate, a tomato, an egg, a bomb, a chappal, a coconut, a hammer, a boxing glove, a firecracker, a chili, ice, a balloon, a rose, a crown, chai, money). The chosen one flies from the thrower's picture to that player's and plays its own cartoon scene there, seen by the whole table. It never touches the cards, the turn or the clock (`godot/scenes/table_throws.gd`, `backend/src/socket/Throwables.js`)
 
 ## Tech Stack
 
@@ -24,7 +25,7 @@ A real-time multiplayer Rummy card game built with Node.js backend and React Nat
 - **Socket.IO** for real-time communication
 - **PostgreSQL** for data persistence
 - **Redis** for caching and session management
-- **JWT** for authentication
+- **Login tokens** kept as server-side sessions (`backend/src/models/Session.js`)
 - **bcrypt** for password hashing
 
 ### Mobile App
@@ -104,7 +105,7 @@ rummy-multiplayer/
 │   │   ├── menu_overlay.gd        # A box over the menu: table setup, room code, the rules
 │   │   ├── lobby.tscn             # Room code and players
 │   │   ├── friends.tscn           # The friends list, over the home screen or the lobby
-│   │   ├── profile.tscn           # The player's own account: games played and won, coins, name and email
+│   │   ├── profile.gd             # The player's own account (code-built box): photo, name, coins, statistics
 │   │   ├── table.tscn             # The card table: oval felt with a wooden rim, seats, piles, the hand
 │   │   ├── table_cloth.gd         # The table itself, drawn in code: floor, wooden rim, lit felt
 │   │   ├── card.gd                # A playing card, drawn in code; can be tapped or carried
@@ -308,6 +309,30 @@ godot --headless --path . res://tests/avatar_e2e.tscn -- --server=http://127.0.0
 # cards. This one starts and stops its own test backend, on the port and database given here
 godot --headless --path . res://tests/server_restart.tscn -- --port=3112 --db=My_Rummy_restart_test
 
+# Logins: still valid 400 days later and after a server restart, kept while the server cannot check
+# them, ended by logging out, by revoke-logins and with the account. Starts its own test backend too
+godot --headless --path . res://tests/session_e2e.tscn -- --port=3141 --db=My_Rummy_session_test
+
+# Things to throw, through a real server: who sees a throw, what is refused, the pace limit, blocked
+# players. Starts its own test backend too
+godot --headless --path . res://tests/throw_e2e.tscn -- --port=3181 --db=My_Rummy_throw_test
+
+# Things to throw, on a table with no server: the buttons beside the seats at 2, 4 and 6 players,
+# the choice opened and closed with a finger, every item's scene (pictures with a window)
+godot --path . res://tests/throw_preview.tscn -- --profile=throwpreview --mute --shots=<folder>
+
+# Loading screen: the logo stays until the server answers and accepts the login (no server yet, a new
+# server address, a saved login, a server away or unable to check logins, an ended login, a game in
+# progress). Starts its own test backend; nothing may answer on the port after the one given
+godot --headless --path . res://tests/loading_tour.tscn -- --port=3171 --db=My_Rummy_load_test --profile=loadtour --mute
+
+# Phone sign-up with SMS codes, through the real login form: no email field, a code to type
+# (wrong code, a new code after the countdown, changing the number), then "Forgot password?"
+# with a code and a new password, which ends the account's other logins. Its test backend sends
+# no SMS: start it with a fixed code and a short wait between codes:
+#   node tests/test_server.js --fresh --port=3131 --db=My_Rummy_phone_test --sms-code=246810 --sms-resend=3
+godot --headless --path . res://tests/phone_tour.tscn -- --profile=phonetour --server=http://127.0.0.1:3131 --mute
+
 # Ads: shown only before sitting down, between rounds and after a finished game (stand-in ads;
 # needs the normal 12 s break between rounds, so not a server started with NEXT_ROUND_SECONDS)
 godot --headless --path . res://tests/ads_policy.tscn -- --profile=adstest --server=http://127.0.0.1:3101
@@ -322,6 +347,10 @@ godot --path . res://tests/ui_tour.tscn -- --profile=uitour --server=http://127.
 
 # Effects: plays every sound and effect once, checks sound reaches the mixer, saves pictures (needs no server)
 godot --path . res://tests/fx_preview.tscn -- --profile=fxpreview --mute --shots=<folder>
+
+# Scorecard and game result: a Pool round, the end of a Pool game, a Deals round and six players, from
+# made-up results; checks them and saves a picture of each (needs no server; --headless only checks)
+godot --path . res://tests/scorecard_preview.tscn -- --profile=scorepreview --mute --shots=<folder>
 
 # Friends, play again, profile: drives them through the real screens with two more players.
 # With a window and --shots it saves pictures; with --headless and without --shots it only checks
@@ -380,12 +409,33 @@ godot --headless --path . res://tests/store_release.tscn -- --profile=storetest 
 ## API Endpoints
 
 ### Authentication
-- `POST /api/auth/register` - User registration. Username, password, email and mobile number
-  are all required. The email must look like an address; the number must be an Indian mobile
-  (10 digits starting 6 to 9, stored without `+91` or a leading `0`) or, for another country,
-  `+` and the country code. The rules are in `backend/src/validation.js`; the app checks the
-  same in `godot/scenes/home.gd` before sending
-- `POST /api/auth/login` - User login with email, mobile number (typed any way) or username
+- `POST /api/auth/register/start` `{ username, phone, password }` - Signing up, first step.
+  Checks the form (username free and at most 20 characters, password of 6 or more, a mobile
+  number that is free and real: an Indian mobile of 10 digits starting 6 to 9, stored without
+  `+91`, or `+` and the country code for any other country; numbers like 9999999999 or
+  9876543210 are refused) and sends a 6-digit code to the number by SMS. Answers
+  `{ codeSent: true, phone, resendSeconds }`, or `{ codeSent: false }` when the server sends no
+  codes (no Twilio settings; see below), in which case `/register` needs no code. Another code
+  for the same number only after `resendSeconds` (30), else `429` with `waitSeconds`
+- `POST /api/auth/register` `{ username, phone, password, code }` - Makes the account with the
+  code from the SMS (5 tries, 10 minutes). Accounts have no email address any more. The rules
+  are in `backend/src/validation.js`; the app checks the same in `godot/net/account_rules.gd`
+- `POST /api/auth/password/start` `{ phone }` - A forgotten password: sends a code to the
+  account's number (`404` when no account has it)
+- `POST /api/auth/password/reset` `{ phone, code, password }` - Sets the new password, ends every
+  other login of the account, and answers like login
+- `POST /api/auth/login` - User login with mobile number (typed any way) or username; an older
+  account's email address still works
+- `POST /api/auth/logout` - Ends this login on the server; its token is refused from then on
+
+Register and login return `{ user, token }`. The token is sent as `Authorization: Bearer <token>`
+and when the socket connects. It does not run out: it works until the player logs out, the
+account is deleted, or the logins are ended for the account's safety with
+`npm run revoke-logins -- <username, mobile number, email or user id>` (run in `backend/`,
+or wherever the server's database settings are; open game connections close within a minute).
+A token that no longer works is answered `401` with `code: "session_ended"`, and the socket is
+refused with `data.code` `"session_ended"`; only then does the app log out. When the server
+cannot check a login just then (`503`, or `data.code` `"retry"`), the app keeps it and tries again.
 
 ### Games
 - `GET /api/games/active` - Get active games
@@ -394,7 +444,7 @@ godot --headless --path . res://tests/store_release.tscn -- --profile=storetest 
 
 ### User
 - `GET /api/user/profile` - Profile with games played / won
-- `PATCH /api/user/profile` - Update username and email
+- `PATCH /api/user/profile` - Update the username
 - `POST /api/user/delete` `{ password }` - Delete the account and its game results for good
 - `PUT /api/user/avatar` - Save a profile photo: the body is the picture itself
   (`Content-Type: image/jpeg` or `image/png`), at most 200 KB and 512 pixels a side; the app
@@ -449,6 +499,9 @@ identity from it. Every client event is answered through its acknowledgement cal
 - `inviteFriend` `{ userId }` - Call a friend who is online to the table you are waiting at.
   A player you finished a game with in the last 15 minutes can be called too, friend or not
   (the app's "Play again" opens a table with the same rules and calls the others to it)
+- `throwItem` `{ to, item }` - Throw one of the items (`Throwables.ITEMS`) at another player at
+  the table. Refused for oneself, someone at another table or an unknown item, and after 4
+  throws in 8 seconds
 
 #### Server → Client
 - `gameState` - The whole table after every change, with only the receiver's own hand.
@@ -472,6 +525,8 @@ identity from it. Every client event is answered through its acknowledgement cal
 - `gameInvite` `{ username, roomCode, poolLimit, closedJoker, deals, maxPlayers, stake, pointValue, again }` - A friend invites
   the player to their table; joining is `joinGameByRoomCode`. `stake` is the entry in coins,
   `again` is true when the two have just played together
+- `itemThrown` `{ id, gameId, from, to, item, at }` - Someone at the table threw an item; every
+  player there gets it, the thrower included, except those who blocked the thrower in the chat
 
 ## Development
 
@@ -520,6 +575,16 @@ PostgreSQL database, so Render creates both in one step.
 4. Put that address into `RELEASE_SERVER_URL` in `godot/autoload/config.gd` and build the
    apps (next section). To try the live server with the test `.apk` first, type the address
    into the Server field on the login screen.
+5. **SMS codes for sign-up and forgotten passwords.** Until this is done the server makes
+   accounts without checking the number (its log says "Phone numbers are NOT verified"), and
+   "Forgot password?" cannot work. Make an account on twilio.com, then in the Twilio console:
+   *Verify > Services > Create new*, name it "Namma Rummy", code length 6. Copy the
+   **Account SID** and **Auth Token** (console home page) and the service's **Service SID**
+   (starts with `VA`). On the Render service page, *Environment > Add Environment Variable*:
+   `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`, then save (Render
+   restarts the server). The log then says "Sign-up codes are sent by SMS". Twilio charges per
+   code sent (see twilio.com/verify/pricing); a trial account only sends to numbers you have
+   verified in the console. Under *Verify > Geo permissions*, allow the countries players are in.
 
 Every later `git push` deploys by itself (players see "Reconnecting..." for a few seconds;
 games in progress survive, they are kept in the database). Logs and the environment variables

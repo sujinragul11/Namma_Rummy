@@ -1,14 +1,16 @@
-const jwt = require('jsonwebtoken');
 const Redis = require('ioredis');
 const GameEngine = require('../game/GameEngine');
 const Game = require('../models/Game');
 const User = require('../models/User');
 const Coins = require('../models/Coins');
 const Avatar = require('../models/Avatar');
+const DailyBonus = require('../models/DailyBonus');
+const Session = require('../models/Session');
 const db = require('../database/db');
-const config = require('../config');
 const { FriendsManager, WatchedMap } = require('./FriendsManager');
 const Matchmaker = require('./Matchmaker');
+const ChatManager = require('./ChatManager');
+const Throwables = require('./Throwables');
 
 const GAME_TTL_SECONDS = 86400; // 24 hours
 const CLEANUP_DELAY_MS = 300000; // 5 minutes
@@ -20,6 +22,8 @@ class SocketManager {
     this.io = io;
     this.games = new Map(); // gameId -> GameEngine instance
     this.friends = new FriendsManager(this);
+    this.chat = new ChatManager(this); // messages and emoji reactions at the table
+    this.throwables = new Throwables(this); // a cake, a tomato... thrown at another player's picture
     // "Play Now": players looking for a table, seated together without a room code
     this.matchmaker = new Matchmaker({
       onMatch: (tickets) => this.startMatchedGame(tickets),
@@ -98,6 +102,16 @@ class SocketManager {
       await Avatar.ensureSchema();
     } catch (error) {
       console.error('Failed to prepare the database for profile photos:', error.message);
+    }
+    try {
+      await DailyBonus.ensureSchema();
+    } catch (error) {
+      console.error('Failed to prepare the database for the daily bonus:', error.message);
+    }
+    try {
+      await Session.ensureSchema();
+    } catch (error) {
+      console.error('Failed to prepare the database for logins:', error.message);
     }
 
     const restored = [];
@@ -211,6 +225,11 @@ class SocketManager {
     }
   }
 
+  // Tells every phone a player is on where their daily bonus stands: { available, nextSpinIn }
+  bonusChanged(userId, status) {
+    this.io.to(this.userRoom(userId)).emit('dailyBonus', status);
+  }
+
   // Tells a player how many coins they have now
   sendCoins(userId, balance) {
     if (balance === null || balance === undefined) return;
@@ -247,21 +266,29 @@ class SocketManager {
   }
 
   setupSocketHandlers() {
-    // Every socket must present the JWT issued at login; the user id comes from it, never from the payload
+    // Every socket must present the token issued at login; the user id comes from it, never from the payload.
+    // The refusal says which kind it is: code "session_ended" when the login is over (the app
+    // logs out), "retry" when the server could not check it just now (the app tries again).
     this.io.use(async (socket, next) => {
       try {
         await this.ready; // the database is being prepared in the first moment after a start
         const token = socket.handshake.auth && socket.handshake.auth.token;
-        const payload = jwt.verify(token, config.jwtSecret);
-        const user = await User.findById(payload.id);
-        if (!user) throw new Error('User not found');
+        const login = await Session.verify(token);
+        const user = await User.findById(login.userId);
+        if (!user) throw Session.ended();
 
         socket.data.userId = String(user.id);
+        socket.data.sessionId = login.sessionId; // see closeEndedLogins in server.js
         socket.data.username = user.username;
         this.avatars.set(String(user.id), user.avatar || 0);
         next();
       } catch (error) {
-        next(new Error('Authentication required'));
+        if (error.sessionEnded) {
+          next(Object.assign(new Error('Authentication required'), { data: { code: 'session_ended' } }));
+        } else {
+          console.warn('⚠️  Could not check a login:', error.message);
+          next(Object.assign(new Error('Server busy'), { data: { code: 'retry' } }));
+        }
       }
     });
 
@@ -458,6 +485,10 @@ class SocketManager {
 
       // Friends lists, who is online, invitations
       this.friends.attach(socket, handle);
+      // Chat and emoji reactions between the players at a table
+      this.chat.attach(socket, handle);
+      // Things thrown at another player's picture, seen by the whole table
+      this.throwables.attach(socket, handle);
 
       // Disconnect
       socket.on('disconnect', () => {

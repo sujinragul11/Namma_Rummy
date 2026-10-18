@@ -10,7 +10,13 @@
 // --rig-flag   while this file exists, deals are fixed. What is in the file names the deal:
 //                closed         the hands in CLOSED_DEAL below, for the Close Joker test
 //                anything else  the deck as it comes out of the box, with the first card (A♠) cut
-// The tests are given the same --rig-flag and create and remove the file themselves.
+// --outage-flag  while this file exists, checking a login fails the way it does when the
+//              database does not answer (tests/session_e2e: the app must stay logged in)
+// --sms-code=123456  sign-up and password reset ask for an SMS code, and this one is right
+//              for every number (tests/phone_tour). Without it numbers are not verified.
+//              No real SMS is ever sent from here, whatever backend/.env says.
+// --sms-resend=2     seconds a number waits before another code (default 30)
+// The tests are given the same flags and create and remove the files themselves.
 // Stop the server with Ctrl+C. It refuses the real port and any database not named ..._test.
 
 const fs = require('fs');
@@ -39,6 +45,7 @@ function option(name, fallback) {
 const port = option('port', '3101');
 const database = option('db', 'My_Rummy_test');
 const rigFlag = option('rig-flag', '');
+const outageFlag = option('outage-flag', '');
 
 if (port === '3001' || !database.endsWith('_test')) {
   console.error('Refusing to run: use a port other than 3001 and a database whose name ends in _test.');
@@ -49,6 +56,11 @@ process.chdir(BACKEND);
 require(path.join(BACKEND, 'node_modules', 'dotenv')).config();
 process.env.DB_NAME = database; // set before the server reads its settings
 process.env.PORT = port;
+for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_VERIFY_SERVICE_SID', 'SMS_TEST_CODE']) {
+  delete process.env[name];
+}
+if (option('sms-code', '')) process.env.SMS_TEST_CODE = option('sms-code', '');
+if (option('sms-resend', '')) process.env.SMS_RESEND_SECONDS = option('sms-resend', '');
 
 // The name of the deal asked for, or '' for a normal shuffle.
 function riggedDeal() {
@@ -86,6 +98,16 @@ function rigDeals() {
   };
   DeckManager.prototype.pickRandomCard = function () {
     return riggedDeal() ? this.deck.splice(0, 1)[0] : realPick.call(this);
+  };
+}
+
+function breakLoginChecks() {
+  if (!outageFlag) return;
+  const Session = require(path.join(BACKEND, 'src', 'models', 'Session'));
+  const realVerify = Session.verify;
+  Session.verify = function (token) {
+    if (fs.existsSync(outageFlag)) return Promise.reject(new Error('connect ECONNREFUSED (test outage)'));
+    return realVerify.call(this, token);
   };
 }
 
@@ -130,7 +152,8 @@ async function forgetGames() {
   if (process.argv.includes('--fresh')) await freshDatabase();
   if (process.argv.includes('--forget-games')) await forgetGames();
   rigDeals();
-  console.log(`Test server: port ${port}, database ${database}${rigFlag ? `, rig flag ${rigFlag}` : ''}`);
+  breakLoginChecks();
+  console.log(`Test server: port ${port}, database ${database}${rigFlag ? `, rig flag ${rigFlag}` : ''}${outageFlag ? `, outage flag ${outageFlag}` : ''}`);
   require(path.join(BACKEND, 'src', 'server.js'));
 })().catch((error) => {
   console.error('Test server error:', error.message);

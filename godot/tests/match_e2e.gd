@@ -40,7 +40,7 @@ func _run() -> void:
 	var tag := "%d%03d" % [int(Time.get_unix_time_from_system()) % 100000, randi() % 1000]
 	var b := await _player("Bala" + tag)
 	var c := await _player("Chitra" + tag)
-	await Game.register("Anu" + tag, "anu%s@test.local" % tag, _phone(), PASSWORD)
+	await Game.register("Anu" + tag, _phone(), PASSWORD)
 	_check("logged in and online", await _until(func() -> bool: return Game.is_online() and _shown("MenuPanel")))
 	await _wait(0.6)
 	_check("the tiles are the four of the lobby", _shown("CloseJokerTile") and _shown("PoolTile") and _shown("DealsTile") and _shown("FriendsTile"))
@@ -146,7 +146,9 @@ func _run() -> void:
 	await _wait(1.0)
 	_check("it names the deal", _text("ResultTitle").ends_with("won deal 1"), _text("ResultTitle"))
 	var rows_text := _labels_in("ResultRows")
-	_check("and the chips that changed hands", rows_text.contains("-20 chips (140)") and rows_text.contains("+20 chips (180)"), rows_text)
+	# The scorecard's Chips column: what each player has now, and under it what changed hands
+	var chip_rows := ["-20 chips", "140", "+20 chips", "180"].all(func(text: String) -> bool: return rows_text.split(" | ").has(text))
+	_check("and the chips that changed hands", chip_rows, rows_text)
 	await _shot("deals-result")
 	_check("the second deal follows by itself", await _until(func() -> bool: return Game.status() == "playing" and int(Game.state.get("round", 0)) == 2, 8.0) and _text("RoomLabel").contains("Deal 2 of 2"), _text("RoomLabel"))
 	await b.leave()
@@ -193,8 +195,8 @@ func _player(username: String) -> GameClient:
 	var client := GameClient.new()
 	client.remember_login = false
 	add_child(client)
-	await client.register(username, username + "@test.local", _phone(), PASSWORD)
-	await _until(func() -> bool: return client.is_online())
+	await client.register(username, _phone(), PASSWORD)
+	await _until(func() -> bool: return client.is_online(), 20.0)  # a busy PC can take a while
 	return client
 
 

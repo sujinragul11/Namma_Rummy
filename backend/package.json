@@ -9,7 +9,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate": "node src/database/migrate.js"
+    "migrate": "node src/database/migrate.js",
+    "revoke-logins": "node src/database/revoke-logins.js",
+    "chat-reports": "node src/database/chat-reports.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

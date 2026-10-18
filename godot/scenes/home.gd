@@ -4,7 +4,8 @@ extends Control
 ##
 ## Logged in: the menu, laid out like a card-game lobby. The player and the coins sit in a bar
 ## at the top with a few round buttons, big tiles in the middle open the kinds of game, and
-## a bar of small buttons runs along the bottom. A game tile opens a box to set up the table;
+## a bar of small buttons runs along the bottom. Beside the coins, the Daily Bonus pill opens
+## the wheel that can be spun once every 24 hours, and counts down to the next spin. A game tile opens a box to set up the table;
 ## the friends tile opens the room-code form.
 ##
 ## Points Rummy is not on the menu (since 2026-10-14 the big tile is Close Joker). It stays in
@@ -39,8 +40,9 @@ const TEAL_BUTTON := Color("2bb3a3")
 const GREEN_BUTTON := Color("43b649")
 const YELLOW_BUTTON := Color("f2c21b")
 # The server answers "Invalid credentials" both for an unknown account and for a wrong password
-const WRONG_LOGIN_MESSAGE := "That email, phone or username and password do not match an account.\n\nNew here? Use \"Don't have an account? Register\"."
+const WRONG_LOGIN_MESSAGE := "That mobile number or username and password do not match an account.\n\nNew here? Use \"Don't have an account? Register\". Forgotten your password? Use \"Forgot password?\"."
 const ROUND_BUTTON := 52.0
+const BONUS_PILL := Vector2(226, 60)
 const AVATAR_RING := 3.0
 const RULES := """Every player gets 13 cards. On your turn, draw a card from the deck or the open pile, then discard one.
 
@@ -58,7 +60,15 @@ When someone declares, everyone else gets 15 seconds to arrange their cards befo
 
 Coins are play tokens with no cash value. Every player pays the table's entry on sitting down, and the winner of the game takes everything paid in."""
 
-var _registering := false
+## What the login form shows: logging in, signing up, the number for a forgotten password, or
+## the box for the code the server sent by SMS.
+enum AuthStep { LOGIN, REGISTER, FORGOT, CODE }
+
+var _step := AuthStep.LOGIN
+var _code_purpose := ""  # in the CODE step: "register" or "password"
+var _code_phone := ""  # the whole number the code went to, as it was sent to the server
+var _code_shown := ""  # the same number as the server writes it, "+91 98765 43210"
+var _resend_at := 0  # Time.get_ticks_msec() from when another code may be asked for
 var _keyboard_height := 0
 var _frames_until_scroll := 0  # the layout needs a few frames to settle before scrolling to a field
 var _float_time := 0.0
@@ -69,6 +79,9 @@ var _point_index := GameClient.POINT_VALUES.find(FIRST_POINT_VALUE)  # the value
 var _point_picked := false  # the same for the value of a point
 var _search: MatchSearch  # the box shown while "Play Now" looks for players
 var _settings: SettingsBox  # behind the cog: sound, the privacy policy and terms, logging out
+var _bonus_box: DailyBonusBox  # the daily bonus wheel
+var _bonus_button: Button  # the pill beside the coins that opens it
+var _bonus_ready_shown := false  # whether the pill is dressed as "a spin is waiting"
 var _coins_label: CoinLabel
 var _stake_coins: CoinLabel  # the amount in the pill above the slider
 var _player_chips: Array[ChoiceChip] = []  # one per PLAYER_CHOICES entry
@@ -85,12 +98,17 @@ var _private_table := false
 @onready var _side: ScrollContainer = %Side
 @onready var _auth_panel: Control = %AuthPanel
 @onready var _auth_title: Label = %AuthTitle
+@onready var _auth_info: Label = %AuthInfoLabel
 @onready var _username_edit: LineEdit = %UsernameEdit
-@onready var _email_edit: LineEdit = %EmailEdit
+@onready var _phone_row: Control = %PhoneRow
+@onready var _country_edit: LineEdit = %CountryCodeEdit
 @onready var _phone_edit: LineEdit = %PhoneEdit
 @onready var _identifier_edit: LineEdit = %IdentifierEdit
+@onready var _otp_edit: LineEdit = %OtpEdit
 @onready var _password_edit: LineEdit = %PasswordEdit
 @onready var _submit_button: Button = %SubmitButton
+@onready var _resend_button: Button = %ResendButton
+@onready var _forgot_button: Button = %ForgotButton
 @onready var _switch_button: Button = %SwitchButton
 @onready var _server_row: Control = %ServerRow
 @onready var _server_edit: LineEdit = %ServerEdit
@@ -174,7 +192,14 @@ func _ready() -> void:
 
 	_submit_button.pressed.connect(_on_submit)
 	_password_edit.text_submitted.connect(_on_submit.unbind(1))
+	_otp_edit.text_submitted.connect(_on_submit.unbind(1))
+	_otp_edit.text_changed.connect(_on_code_typed)
+	_username_edit.text_submitted.connect(func(_text: String) -> void: _phone_edit.grab_focus())
+	_phone_edit.text_submitted.connect(_on_phone_submitted.unbind(1))
 	_switch_button.pressed.connect(_on_switch_mode)
+	_forgot_button.pressed.connect(_on_forgot)
+	_resend_button.pressed.connect(_on_resend)
+	_auth_info.add_theme_font_override("font", Ui.bold_font)
 	_close_joker_tile.pressed.connect(_open_setup.bind(2))
 	_pool_tile.pressed.connect(_open_setup.bind(1))
 	_deals_tile.pressed.connect(_open_setup.bind(3))
@@ -196,6 +221,7 @@ func _ready() -> void:
 
 	Game.auth_changed.connect(_on_auth_changed)
 	Game.auth_failed.connect(_on_auth_failed)
+	Game.code_sent.connect(_on_code_sent)
 	Game.connection_changed.connect(_refresh)
 	Game.busy_changed.connect(_refresh)
 	Game.friends_changed.connect(_refresh)
@@ -206,6 +232,12 @@ func _ready() -> void:
 	_settings = SettingsBox.new()
 	add_child(_settings)
 	_settings.get_node("Box/SettingsColumn/AvatarSlot").add_child(AvatarEditor.new())
+	_bonus_box = DailyBonusBox.new()
+	add_child(_bonus_box)
+	_bonus_box.wheel.stopped.connect(_refresh_coins)  # the coins won show once the wheel is at rest
+	_bonus_button.pressed.connect(_open_bonus)
+	Game.bonus_changed.connect(_dress_bonus_button)
+	_dress_bonus_button()
 	# The top bar shows the player's photo once it is here, and a new one as soon as it is saved
 	Game.avatar_loaded.connect(func(user_id: String) -> void:
 		if user_id == Game.player_id:
@@ -229,6 +261,17 @@ func _build_top_bar() -> void:
 	_avatar.draw.connect(_draw_avatar)
 	_round_button(_help_button, _draw_question)
 	_round_button(_account_button, _draw_gear)
+
+	# The daily bonus, right of the coins: a little wheel, and "FREE SPIN!" or the time to wait
+	_bonus_button = Button.new()
+	_bonus_button.name = "BonusButton"
+	_bonus_button.custom_minimum_size = BONUS_PILL
+	_bonus_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_bonus_button.focus_mode = Control.FOCUS_NONE
+	_bonus_button.tooltip_text = "Daily bonus"
+	_bonus_button.draw.connect(_draw_bonus_pill)
+	_coin_pill.get_parent().add_child(_bonus_button)
+	_coin_pill.get_parent().move_child(_bonus_button, _coin_pill.get_index() + 1)
 
 
 # The setup box the way a card-game lobby does it: round marks to pick the players and the
@@ -426,6 +469,18 @@ func _process(delta: float) -> void:
 		var spot := Vector2(randf_range(0.15, 0.85), randf_range(0.3, 0.7)) * _logo.size
 		Fx.sparkle(_logo.global_position + spot, Fx.GOLD, 5)
 
+	# The pill's little wheel turns while a spin waits; otherwise its countdown runs
+	if _bonus_button.is_visible_in_tree():
+		if Game.bonus_available() != _bonus_ready_shown:
+			_dress_bonus_button()
+		_bonus_button.queue_redraw()
+
+	# The SMS code: another one may be asked for once its countdown has run out
+	if _resend_button.is_visible_in_tree():
+		var wait := Game.seconds_until(_resend_at)
+		_resend_button.disabled = wait > 0 or Game.busy
+		_resend_button.text = "Send the code again in %ds" % wait if wait > 0 else "Send the code again"
+
 	if DisplayServer.has_feature(DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
 		make_room_for_keyboard(DisplayServer.virtual_keyboard_get_height())
 
@@ -489,14 +544,7 @@ func _refresh() -> void:
 		for panel: Node in get_tree().get_nodes_in_group(FriendsPanel.BACK_GROUP):
 			panel.call("close")
 
-	_auth_title.text = "Register" if _registering else "Login"
-	_username_edit.visible = _registering
-	_email_edit.visible = _registering
-	_phone_edit.visible = _registering
-	_identifier_edit.visible = not _registering
-	_submit_button.text = "Sign up" if _registering else "Login"
-	_submit_button.disabled = Game.busy
-	_switch_button.text = "Already have an account? Login" if _registering else "Don't have an account? Register"
+	_refresh_form()
 
 	_welcome_label.text = str(Game.user.get("username", ""))
 	_avatar.queue_redraw()
@@ -504,7 +552,7 @@ func _refresh() -> void:
 		_status_label.text = "Online"
 		_status_label.add_theme_color_override("font_color", Ui.PALE_GREEN)
 	else:
-		_status_label.text = "Connecting..."
+		_status_label.text = "Reconnecting..."  # the menu shows only once connected (LoadingScreen)
 		_status_label.add_theme_color_override("font_color", Ui.AMBER)
 	_create_button.disabled = Game.busy or not Game.is_online()
 	_join_button.disabled = Game.busy or not Game.is_online()
@@ -527,8 +575,59 @@ func _refresh() -> void:
 	_bottom_bar.add_theme_stylebox_override("panel", Ui.box(Color(0, 0, 0, 0.38), 0, 24, 10) if logged_in else StyleBoxEmpty.new())
 
 
+# The login form shows what its step needs. Signing up asks for a username, the mobile number
+# (country code in its own box) and a password; then for the code the server sent by SMS.
+# A forgotten password asks for the number, then for the code and a new password.
+func _refresh_form() -> void:
+	var code_step := _step == AuthStep.CODE
+	var resetting := _step == AuthStep.FORGOT or (code_step and _code_purpose == "password")
+	_auth_title.text = {
+		AuthStep.LOGIN: "Login",
+		AuthStep.REGISTER: "Register",
+		AuthStep.FORGOT: "Forgot password",
+		AuthStep.CODE: "Enter the code",
+	}[_step]
+	_auth_info.visible = _step == AuthStep.FORGOT or code_step
+	if _step == AuthStep.FORGOT:
+		_auth_info.text = "Enter the mobile number of your account. We will send you a code by SMS."
+	elif resetting:
+		_auth_info.text = "We sent a 6-digit code by SMS to %s. Enter it, and choose a new password." % _code_shown
+	else:
+		_auth_info.text = "We sent a 6-digit code by SMS to %s. Enter it to finish signing up." % _code_shown
+	_username_edit.visible = _step == AuthStep.REGISTER
+	_phone_row.visible = _step == AuthStep.REGISTER or _step == AuthStep.FORGOT
+	_identifier_edit.visible = _step == AuthStep.LOGIN
+	_otp_edit.visible = code_step
+	# The password was given with the sign-up form; a reset asks for the new one with the code
+	_password_edit.visible = _step == AuthStep.LOGIN or _step == AuthStep.REGISTER or (resetting and code_step)
+	if resetting:
+		_password_edit.placeholder_text = "New password (at least %d characters)" % AccountRules.MIN_PASSWORD_LENGTH
+	elif _step == AuthStep.REGISTER:
+		_password_edit.placeholder_text = "Password (at least %d characters)" % AccountRules.MIN_PASSWORD_LENGTH
+	else:
+		_password_edit.placeholder_text = "Password"
+	_submit_button.text = {
+		AuthStep.LOGIN: "Login",
+		AuthStep.REGISTER: "Sign up",
+		AuthStep.FORGOT: "Send code",
+		AuthStep.CODE: "Set new password" if resetting else "Verify",
+	}[_step]
+	_submit_button.disabled = Game.busy
+	_resend_button.visible = code_step
+	_forgot_button.visible = _step == AuthStep.LOGIN
+	_switch_button.text = {
+		AuthStep.LOGIN: "Don't have an account? Register",
+		AuthStep.REGISTER: "Already have an account? Login",
+		AuthStep.FORGOT: "Back to login",
+		AuthStep.CODE: "Change the number",
+	}[_step]
+
+
 # The balance, and the tables it reaches: one that costs more than the player has cannot be picked.
 func _refresh_coins() -> void:
+	# While the bonus wheel turns, the coins it pays stay hidden until it is at rest
+	if _bonus_box != null and _bonus_box.is_turning():
+		return
 	_coins_label.amount = Game.coins
 	for index in GameClient.STAKES.size():
 		_stake_option.set_item_disabled(index, GameClient.STAKES[index] > Game.coins)
@@ -590,14 +689,45 @@ func _on_stake_slid(value: float) -> void:
 
 
 func _on_auth_changed() -> void:
+	if Game.is_logged_in():
+		# Logging out later starts from the login form, not from a code that was used
+		_step = AuthStep.LOGIN
+		_otp_edit.text = ""
 	_refresh()
 	# The form gives way to the menu (or back) with a little bounce
 	_play_entrance.call_deferred()
 
 
+# The flat button under the form: to sign up, back to login, or (in the code step) back to
+# the number, to correct it.
 func _on_switch_mode() -> void:
-	_registering = not _registering
+	match _step:
+		AuthStep.LOGIN:
+			_step = AuthStep.REGISTER
+		AuthStep.CODE:
+			_step = AuthStep.REGISTER if _code_purpose == "register" else AuthStep.FORGOT
+			_phone_edit.grab_focus.call_deferred()
+		_:
+			_step = AuthStep.LOGIN
+	_otp_edit.text = ""
 	_refresh()
+
+
+func _on_forgot() -> void:
+	_step = AuthStep.FORGOT
+	# A number typed to log in is most likely the account's number
+	var typed := _identifier_edit.text.strip_edges()
+	if not typed.is_empty() and AccountRules.phone_problem(_country_edit.text, typed).is_empty():
+		_phone_edit.text = typed
+	_refresh()
+	_phone_edit.grab_focus.call_deferred()
+
+
+func _on_phone_submitted() -> void:
+	if _step == AuthStep.FORGOT:
+		_on_submit()
+	else:
+		_password_edit.grab_focus()
 
 
 func _on_submit() -> void:
@@ -608,41 +738,104 @@ func _on_submit() -> void:
 		_server_edit.text = Game.server_url
 	var password := _password_edit.text
 
-	if _registering:
-		var username := _username_edit.text.strip_edges()
-		var email := _email_edit.text.strip_edges()
-		var phone := _phone_edit.text.strip_edges()
-		var problem := _sign_up_problem(username, email, phone, password)
-		if problem.is_empty():
-			Game.register(username, email, phone, password)
-		else:
-			Ui.alert(problem, "Register")
-	else:
-		var identifier := _identifier_edit.text.strip_edges()
-		if identifier.is_empty() or password.is_empty():
-			Ui.alert("Enter your email, phone or username, and your password.", "Login")
-		else:
-			Game.login(identifier, password)
+	match _step:
+		AuthStep.REGISTER:
+			var username := _username_edit.text.strip_edges()
+			var problem := _sign_up_problem(username, password)
+			if not problem.is_empty():
+				Ui.alert(problem, "Register")
+				return
+			_code_phone = _typed_phone()
+			Game.start_registration(username, _code_phone, password)
+		AuthStep.FORGOT:
+			var problem := AccountRules.phone_problem(_country_edit.text, _phone_edit.text)
+			if not problem.is_empty():
+				Ui.alert(problem, "Forgot password")
+				return
+			_code_phone = _typed_phone()
+			Game.start_password_reset(_code_phone)
+		AuthStep.CODE:
+			var resetting := _code_purpose == "password"
+			var problem := AccountRules.code_problem(_otp_edit.text)
+			if problem.is_empty() and resetting:
+				problem = AccountRules.password_problem(password)
+			if not problem.is_empty():
+				Ui.alert(problem, "Forgot password" if resetting else "Register")
+				return
+			if resetting:
+				Game.reset_password(_code_phone, _otp_edit.text, password)
+			else:
+				Game.register(_username_edit.text.strip_edges(), _code_phone, password, _otp_edit.text)
+		_:
+			var identifier := _identifier_edit.text.strip_edges()
+			if identifier.is_empty() or password.is_empty():
+				Ui.alert("Enter your mobile number or username, and your password.", "Login")
+			else:
+				Game.login(identifier, password)
+
+
+# The number as the two boxes give it, with its country code: "+919876543210".
+func _typed_phone() -> String:
+	return AccountRules.full_number(_country_edit.text, _phone_edit.text)
 
 
 # What is missing or wrong in the sign-up form, going down its fields; "" when it can be sent.
-# An account needs all four: the email address and the mobile number are not optional.
-func _sign_up_problem(username: String, email: String, phone: String, password: String) -> String:
+func _sign_up_problem(username: String, password: String) -> String:
 	if username.is_empty():
 		return "Enter a username."
-	var problem := AccountRules.email_problem(email)
+	var problem := AccountRules.phone_problem(_country_edit.text, _phone_edit.text)
 	if problem.is_empty():
-		problem = AccountRules.phone_problem(phone)
-	if problem.is_empty() and password.is_empty():
-		problem = "Enter a password."
+		problem = AccountRules.password_problem(password)
 	return problem
 
 
-func _on_auth_failed(message: String) -> void:
-	if _registering:
-		Ui.alert(message, "Registration failed")
+# The server has sent a code: the form asks for it.
+func _on_code_sent(purpose: String, phone: String, resend_seconds: int) -> void:
+	var again := _step == AuthStep.CODE
+	_code_purpose = purpose
+	_code_shown = phone
+	_resend_at = Time.get_ticks_msec() + resend_seconds * 1000
+	if not again:
+		_otp_edit.text = ""
+		if purpose == "password":
+			_password_edit.text = ""  # the one that was forgotten
+	_step = AuthStep.CODE
+	_refresh()
+	_otp_edit.grab_focus.call_deferred()
+	if again:
+		Ui.notify("info", "A new code is on its way to %s" % phone)
+
+
+func _on_resend() -> void:
+	if Game.busy or Game.seconds_until(_resend_at) > 0:
+		return
+	if _code_purpose == "register":
+		Game.start_registration(_username_edit.text.strip_edges(), _code_phone, _password_edit.text)
 	else:
-		Ui.alert(WRONG_LOGIN_MESSAGE if message == "Invalid credentials" else message, "Login failed")
+		Game.start_password_reset(_code_phone)
+
+
+# The code box takes digits only; when signing up, the sixth one sends the code by itself.
+func _on_code_typed(text: String) -> void:
+	var digits := RegEx.create_from_string("[^0-9]").sub(text, "", true)
+	if digits != text:
+		_otp_edit.text = digits
+		_otp_edit.caret_column = digits.length()
+	if digits.length() == AccountRules.CODE_LENGTH and _code_purpose == "register" and not Game.busy:
+		_on_submit()
+
+
+func _on_auth_failed(message: String) -> void:
+	match _step:
+		AuthStep.LOGIN:
+			Ui.alert(WRONG_LOGIN_MESSAGE if message == "Invalid credentials" else message, "Login failed")
+		AuthStep.REGISTER:
+			Ui.alert(message, "Registration failed")
+		AuthStep.FORGOT:
+			Ui.alert(message, "Forgot password")
+		AuthStep.CODE:
+			_otp_edit.text = ""  # to type it again
+			Ui.alert(message, "Code not accepted")
 
 
 # The setup box opens with a game chosen: from a game tile, or from the Private Table box
@@ -717,8 +910,25 @@ func _open_settings() -> void:
 	_settings.open()
 
 
+func _open_bonus() -> void:
+	_join_overlay.close()  # one box at a time
+	_bonus_box.open()
+
+
+# A gold edge on the pill while a spin is waiting, the dark glass of the other pills otherwise.
+func _dress_bonus_button() -> void:
+	_bonus_ready_shown = Game.bonus_available()
+	for state_name: String in ["normal", "hover", "pressed"]:
+		var pill := Ui.box(Color(0, 0, 0, 0.5 if state_name == "hover" else 0.36), 30, 14, 6)
+		if _bonus_ready_shown:
+			pill.border_color = Ui.GOLD
+			pill.set_border_width_all(2)
+		_bonus_button.add_theme_stylebox_override(state_name, pill)
+	_bonus_button.queue_redraw()
+
+
 func _open_profile() -> void:
-	ProfilePanel.open(self)
+	ProfilePanel.show_over(self)
 
 
 # A tap on the player's picture or name opens the profile: the only way to it (the user's
@@ -764,6 +974,41 @@ func _draw_question() -> void:
 	var font_size := 32
 	var baseline := _help_button.size.y / 2.0 + (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
 	_help_button.draw_string(font, Vector2(0, baseline), "?", HORIZONTAL_ALIGNMENT_CENTER, _help_button.size.x, font_size, Color.WHITE)
+
+
+# The daily bonus pill: a little wheel with eight slots and a pointer, then two lines. While a
+# spin waits the wheel turns, the words say so in gold and a red dot sits on the corner.
+func _draw_bonus_pill() -> void:
+	var button := _bonus_button
+	var spin_waits := Game.bonus_available()
+	var height := button.size.y
+	var radius := 21.0
+	var center := Vector2(14.0 + radius, height / 2.0 + 2.0)
+	var turned := _float_time * 1.4 if spin_waits else 0.0
+	button.draw_circle(center, radius + 2.5, BonusWheel.RIM_DARK, true, -1.0, true)
+	button.draw_circle(center, radius, BonusWheel.RIM, true, -1.0, true)
+	for slot in 8:
+		var points := PackedVector2Array([center])
+		for k in 5:
+			points.append(center + Vector2.from_angle(turned + (slot + k / 4.0) * TAU / 8.0) * (radius - 3.0))
+		button.draw_colored_polygon(points, BonusWheel.SLOT_A if slot % 2 == 0 else BonusWheel.SLOT_B)
+	button.draw_circle(center, 6.0, BonusWheel.RIM, true, -1.0, true)
+	var top := center - Vector2(0.0, radius)
+	button.draw_colored_polygon(PackedVector2Array([top + Vector2(-6, -5), top + Vector2(6, -5), top + Vector2(0, 7)]), BonusWheel.RIM_LIGHT)
+
+	var font := Ui.bold_font
+	var left := center.x + radius + 12.0
+	var width := button.size.x - left - 10.0
+	button.draw_string(font, Vector2(left, height / 2.0 - 5.0), "DAILY BONUS", HORIZONTAL_ALIGNMENT_LEFT, width, 15, Color(1, 1, 1, 0.75))
+	var line := "..."
+	if spin_waits:
+		line = "FREE SPIN!"
+	elif not Game.bonus.is_empty():
+		line = GameClient.countdown_text(Game.bonus_wait())
+	button.draw_string(font, Vector2(left, height / 2.0 + 21.0), line, HORIZONTAL_ALIGNMENT_LEFT, width, 23, Ui.GOLD if spin_waits else Color.WHITE)
+	if spin_waits:
+		var beat := 0.5 + 0.5 * sin(_float_time * 5.0)
+		button.draw_circle(Vector2(button.size.x - 9.0, 9.0), 7.0 + beat * 1.5, Ui.RED, true, -1.0, true)
 
 
 # A cog: a thick ring with eight teeth.

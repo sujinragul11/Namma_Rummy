@@ -32,6 +32,8 @@ var music_on := true
 var sound_on := true
 ## Silent for this run only (`--mute`); the saved switches stay as they are.
 var muted := false
+## The Chat switch at the table: off hides what the other players write (their emoji still show).
+var chat_on := true
 
 var _file := ConfigFile.new()
 
@@ -53,6 +55,7 @@ func _ready() -> void:
 	_file.load(_path())  # no file yet just means this is the first run
 	music_on = _file.get_value("sound", "music", true)
 	sound_on = _file.get_value("sound", "effects", true)
+	chat_on = _file.get_value("chat", "on", true)
 	if store_build:
 		server_url = RELEASE_SERVER_URL
 	else:
@@ -93,6 +96,12 @@ func save_sound(music: bool, effects: bool) -> void:
 	sound_on = effects
 	_file.set_value("sound", "music", music)
 	_file.set_value("sound", "effects", effects)
+	_file.save(_path())
+
+
+func save_chat(on: bool) -> void:
+	chat_on = on
+	_file.set_value("chat", "on", on)
 	_file.save(_path())
 
 

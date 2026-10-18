@@ -7,15 +7,26 @@ class User {
     return await bcrypt.hash(password, 10);
   }
 
-  static async create({ username, email, phone, password }) {
+  // A new account has no email address: its mobile number is how the player is reached
+  // (older accounts may still have one, and can log in with it)
+  static async create({ username, phone, password }) {
     const passwordHash = await User._hashPassword(password);
     const result = await db.query(
-      `INSERT INTO users (username, email, phone, password_hash)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO users (username, phone, password_hash)
+       VALUES ($1, $2, $3)
        RETURNING id, username, email, phone, coins, total_games, games_won`,
-      [username, email || null, phone || null, passwordHash]
+      [username, phone, passwordHash]
     );
     return result.rows[0];
+  }
+
+  // A new password, e.g. after a reset with an SMS code
+  static async setPassword(userId, password) {
+    const passwordHash = await User._hashPassword(password);
+    await db.query(
+      `UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+      [passwordHash, userId]
+    );
   }
 
   static async findByEmail(email) {
@@ -87,13 +98,13 @@ class User {
     return result.rows[0];
   }
 
-  static async updateProfile(userId, { username, email }) {
+  static async updateProfile(userId, { username }) {
     const result = await db.query(
       `UPDATE users
-       SET username = $1, email = $2, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $3
+       SET username = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
        RETURNING id, username, email, phone, coins, created_at`,
-      [username, email, userId]
+      [username, userId]
     );
     return result.rows[0];
   }

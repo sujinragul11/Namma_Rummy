@@ -3,7 +3,7 @@ const config = require('./config');
 // The web pages the app stores ask for: privacy policy, terms, and a way to delete an
 // account without installing the app. They are plain HTML without scripts.
 
-const UPDATED = '14 October 2026';
+const UPDATED = '18 October 2026';
 
 const escapeHtml = (text) => String(text)
   .replace(/&/g, '&amp;')
@@ -72,8 +72,10 @@ and what you can do about it.</p>
 
 <h2>What we collect</h2>
 <ul>
-  <li><strong>Account details you give us:</strong> a username, an email address, a phone
-  number and a password. The password is stored only as a one-way hash; we cannot read it.</li>
+  <li><strong>Account details you give us:</strong> a username, a mobile number and a password.
+  When you register, or reset a forgotten password, we send a code by SMS to your number to make
+  sure it is yours. Accounts made before 18 October 2026 may also hold an email address. The
+  password is stored only as a one-way hash; we cannot read it.</li>
   <li><strong>Game records:</strong> the games you played, your seat, your final cards, your
   score and whether you won. Other players at your table see your username and your play.</li>
   <li><strong>Play coins:</strong> your balance of coins, and the coins you paid in, got back
@@ -85,6 +87,7 @@ and what you can do about it.</p>
   small square photo on your phone and sends us only that. The players at your table, your
   friends and the players you exchange friend requests with see it. You can remove it at any
   time in <em>Settings</em>.</li>
+  <li><strong>Chat at the table:</strong> what you write or send in a game's chat goes only to the players at that table and is not stored; the server keeps the last messages of a game in progress in its memory, for players who lose the connection and come back. If a player reports one of your messages, that message is kept with your username for us to review. When you block a player, or a player blocks you, that is recorded so the blocked player's messages stay hidden.</li>
   <li><strong>Technical data:</strong> like any internet service, the server receives your IP
   address when the app connects, and it may appear in short-lived server logs.</li>
 </ul>
@@ -115,9 +118,11 @@ against abuse. We do not sell your data, and we do not use what is stored on our
 advertising.</p>
 
 <h2>Who receives it</h2>
-<p>Your account and game data are kept on servers run for us by our hosting provider. We do
-not share them with anyone else, unless the law requires us to. The ad data described under
-<em>Ads</em> goes from your device to Google directly.</p>
+<p>Your account and game data are kept on servers run for us by our hosting provider. To send
+the SMS codes, your mobile number goes to Twilio, which delivers the SMS for us and handles the
+number as its <a href="https://www.twilio.com/en-us/legal/privacy">privacy notice</a> describes.
+We do not share your data with anyone else, unless the law requires us to. The ad data described
+under <em>Ads</em> goes from your device to Google directly.</p>
 
 <h2>On your device</h2>
 <p>The app keeps your login on your device so you stay signed in. Logging out removes it.</p>
@@ -125,10 +130,11 @@ not share them with anyone else, unless the law requires us to. The ad data desc
 <h2>How long we keep it, and deleting it</h2>
 <p>We keep your account until you delete it. You can delete it at any time, in the app
 (<em>Delete account</em> in your profile) or on the web at
-<a href="/delete-account">the account deletion page</a>. Deleting removes your username, email
-address, phone number, password hash, profile photo, your game results, your coins and their
-history, and your friends list straight away.
-Records of the tables themselves stay, without anything that identifies you.</p>
+<a href="/delete-account">the account deletion page</a>. Deleting removes your username, mobile
+number, email address (if your account has one), password hash, profile photo, your game
+results, your coins and their history, and your friends list straight away.
+Records of the tables themselves stay, without anything that identifies you.
+Reported chat messages and blocks are deleted together with either player's account.</p>
 
 <h2>Children</h2>
 <p>The app is meant for adults. It is not directed at children, and we do not knowingly
@@ -193,18 +199,20 @@ const deleteAccount = ({ error = '', done = false } = {}) => layout('Delete acco
 <p class="notice done">Your ${app()} account and the personal data that belonged to it have been deleted.</p>
 ` : `
 <h1>Delete your account</h1>
-<p>This permanently deletes your ${app()} account: your username, email address, phone number,
-password, game results, coins and friends list. It cannot be undone.</p>
+<p>This permanently deletes your ${app()} account: your username, mobile number, email address
+(if your account has one), password, game results, coins and friends list. It cannot be undone.</p>
 <p>You can also do this in the app: tap your name on the main menu to open your profile, and choose <em>Delete account</em>.</p>
 ${error ? `<p class="notice error">${escapeHtml(error)}</p>` : ''}
 <form method="post" action="/delete-account">
-  <label for="identifier">Email, phone or username</label>
+  <label for="identifier">Mobile number or username</label>
   <input id="identifier" name="identifier" autocomplete="username" required>
   <label for="password">Password</label>
   <input id="password" name="password" type="password" autocomplete="current-password" required>
   <button type="submit">Delete my account</button>
 </form>
-<p>Forgotten your password? Write to ${contact()} from the email address of your account.</p>
+<p>Forgotten your password? Set a new one in the app: on the login screen, tap
+<em>Forgot password?</em> and we send a code to your mobile number. If you no longer have that
+number, write to ${contact()} with your username.</p>
 `);
 
 module.exports = { home, privacy, terms, deleteAccount };

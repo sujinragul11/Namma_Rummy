@@ -20,7 +20,7 @@ func _ready() -> void:
 
 func _run() -> void:
 	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
-	var r: Dictionary = await Game.register("po_" + tag, "po_%s@test.local" % tag, "96%08d" % (randi() % 100000000), "secret12")
+	var r: Dictionary = await Game.register("po_" + tag, "96%08d" % (randi() % 100000000), "secret12")
 	_check("registered", r.ok, str(r.get("error", "")))
 	_check("the menu is shown", await _until(func() -> bool: return _has("AvatarPill") and _node("AvatarPill").is_visible_in_tree() and Game.is_online()))
 	await _wait(0.8)

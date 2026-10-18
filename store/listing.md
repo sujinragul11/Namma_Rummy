@@ -36,7 +36,7 @@ Screenshots still have to be taken from the finished game:
 
 **Short description** (Google Play, 80 characters at most)
 
-> 13-card rummy: Points, Pool and Deals. Quick matches or play with friends.
+> 13-card Indian rummy: Close Joker, Pool and Deals. Play Now or with friends.
 
 **Subtitle** (App Store, 30 characters at most)
 
@@ -48,30 +48,34 @@ Screenshots still have to be taken from the finished game:
 
 **Full description** (both stores)
 
-> Namma Rummy is classic 13-card rummy that you play online with your friends.
+> Namma Rummy is classic 13-card Indian rummy, played online in real time with 2 to 6 players.
 >
-> Tap Play Now and the game finds players for you, the ones near you first: no room code
-> needed. Or open a private table, share its six-letter room code, and play with your friends.
-> Real time, 2 to 6 players.
+> Tap Play Now and the game finds players for you, the ones in your region first: no room code needed. Or open a private table under Play with Friends, share its room code on WhatsApp, and play with the people you know.
 >
-> • Points rummy: one quick round, played for coins a point
-> • Pool 101 and Pool 201: play round after round until one player is left
-> • Deals rummy: 2 or 3 deals for chips; the most chips win
-> • Close Joker 240: the joker stays hidden until you make a pure sequence
-> • 50,000 free play coins to start: play at a free table, or for coins
+> THREE WAYS TO PLAY
+> • Close Joker: the joker is cut face down and stays hidden until you hold a pure sequence. A green dot shows who has seen it. Round after round, reach 240 points and you are out; the last player standing wins.
+> • Pool Rummy 101 and 201: the open-joker classic. Reach the limit and you are out; the last player left takes the pot.
+> • Deals Rummy: 2 or 3 deals played for chips; the most chips at the end wins.
+>
+> HOW IT IS PLAYED
+> Every player gets 13 cards. On your turn, draw from the deck or the open pile, then discard one. Arrange your hand into sequences and sets, with at least two sequences and one of them pure, and declare before the others do. A wild joker is cut every round, so no two rounds play the same.
+>
+> PLAY WITH FRIENDS
 > • Add friends, see who is online, and invite them to your table with one tap
-> • Share your room code on WhatsApp
+> • Private tables with a room code you can share on WhatsApp
 > • Play again with the same players in one tap
 > • Your profile shows the games you played and won
-> • Group your cards into sequences and sets; the game shows which groups are valid
-> • When someone declares, you get 15 seconds to arrange your cards before they are counted
-> • A wild joker is cut every round
-> • 30 seconds per turn keeps the game moving
-> • Lost your connection? Come back to the same seat
 >
-> Namma Rummy is free and is played for fun only. It shows ads. Coins are play tokens with no
-> cash value: they cannot be bought, sold or cashed out. There is no real-money play, there
-> are no purchases and no prizes.
+> A TABLE THAT PLAYS FAIR
+> • Group your cards into sequences and sets; the table shows which groups are valid
+> • When someone declares, you get 15 seconds to arrange your cards before they are counted
+> • 30 seconds a turn keeps the game moving
+> • Lost your connection? Come back to the same seat and carry on
+>
+> FREE COINS, NO REAL MONEY
+> Every player starts with 50,000 free play coins. Sit at a free table, or stake coins on a game and let the winner take everything paid in. Coins are play tokens with no cash value: they cannot be bought, sold, transferred or cashed out. There is no real-money play, no purchases and no prizes. Namma Rummy is free to play and shows ads.
+>
+> Namma Rummy is for players aged 18 and over.
 
 ## Google Play Console: App content
 
@@ -108,8 +112,7 @@ Data types collected, each one: *collected, not shared, processed on the server,
 
 | Data type | Required? |
 |---|---|
-| Personal info > Email address | Required |
-| Personal info > Phone number | Required |
+| Personal info > Phone number (proved with an SMS code at sign-up and for a password reset) | Required |
 | Personal info > User IDs (the username) | Required |
 | App activity > App interactions (games played and results) | Required |
 | Contacts (the friends list made inside the app; the phone's address book is never read) | Optional |
@@ -141,13 +144,15 @@ the App Tracking Transparency question once ads come to iOS.
 **App Privacy.** Data collection: Yes. For each type below: used for *App Functionality*,
 *linked to the user*, *not used for tracking*.
 
-- Contact Info > Email Address
 - Contact Info > Phone Number
 - Identifiers > User ID
 - User Content > Gameplay Content
 - Contacts (the in-app friends list; Apple counts a "social graph" as Contacts)
 
-The same five are already declared in the app's privacy file by the iOS export preset.
+The same four are already declared in the app's privacy file by the iOS export preset.
+New accounts have no email address since 18 October 2026, so neither store gets an email entry.
+The phone number goes to Twilio only to send the SMS code; both stores count a service provider
+that works on the developer's behalf as part of the developer, so it is not "shared".
 
 **Age rating.** "Simulated gambling": Yes, frequent (coins are staked on the games), which puts
 the app in Apple's adult age band. "Gambling" (real money): No. Every other question: None / No.
@@ -156,10 +161,11 @@ the app in Apple's adult age band. "Gambling" (real money): No. Every other ques
 answer that it uses no non-exempt encryption.
 
 **App Review information.** The reviewer cannot get past the login without an account. Create
-two on the public server and enter one under "Sign-in required". (Signing up needs an email
-and a mobile number; a number from outside India is typed with + and the country code.) Apple
-also asks why an app needs each piece of personal data (guideline 5.1.1); be ready to say
-what the email and the phone number are each used for. Suggested note:
+two on the public server and enter one under "Sign-in required". (Signing up needs a mobile
+number and the code sent to it by SMS, which a reviewer cannot receive: make both accounts
+yourself, with two numbers you own.) Apple also asks why an app needs each piece of personal
+data (guideline 5.1.1): the mobile number is the account's login, proves one person makes one
+account, and is how a forgotten password is reset. Suggested note:
 
 > Namma Rummy is an online card game for 2 to 6 players. Log in with the demo account above.
 > To see a game, tap a game, then Play Now, on two devices at about the same time, logged in

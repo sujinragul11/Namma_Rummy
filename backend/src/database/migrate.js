@@ -1,6 +1,8 @@
 const db = require('./db');
 const Coins = require('../models/Coins');
 const Avatar = require('../models/Avatar');
+const DailyBonus = require('../models/DailyBonus');
+const Session = require('../models/Session');
 
 const createTables = async () => {
   try {
@@ -116,6 +118,12 @@ const createTables = async () => {
 
     // Profile photos; the server also does this at every start
     await Avatar.ensureSchema();
+
+    // When each player last spun the daily bonus wheel; the server also does this at every start
+    await DailyBonus.ensureSchema();
+
+    // Logins, which last until the player logs out; the server also does this at every start
+    await Session.ensureSchema();
 
     console.log('✅ All tables created successfully!');
 

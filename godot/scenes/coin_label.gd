@@ -14,6 +14,12 @@ var amount := 0:
 		amount = value
 		_update()
 
+## Put before the number, e.g. "+" for coins won.
+var prefix := "":
+	set(value):
+		prefix = value
+		_update()
+
 ## Words after the number, e.g. "coins".
 var suffix := "":
 	set(value):
@@ -56,7 +62,7 @@ func _ready() -> void:
 func _update() -> void:
 	if _label == null:
 		return
-	_label.text = Ui.coins_text(amount) + ("" if suffix.is_empty() else " " + suffix)
+	_label.text = prefix + Ui.coins_text(amount) + ("" if suffix.is_empty() else " " + suffix)
 	_label.add_theme_font_size_override("font_size", font_size)
 	_label.add_theme_color_override("font_color", text_color)
 	var side := roundf(font_size * 1.15)

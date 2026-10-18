@@ -8,12 +8,15 @@ extends Node
 
 signal connected
 signal disconnected
-## The server refused the connection, for example because the login token is no longer valid.
+## The server refused the connection, for example because the login has ended. A refusal
+## that only means "not just now" is not reported: the client keeps trying.
 signal connect_refused(message: String)
 signal event_received(event_name: String, payload: Variant)
 
 const REPLY_TIMEOUT := 8.0
 const RECONNECT_DELAY := 2.0
+## The code the server gives a refusal that only means "try again in a moment".
+const RETRY_CODE := "retry"
 
 var is_online := false
 
@@ -135,14 +138,23 @@ func _on_message(message: String) -> void:
 			if data is Array and not data.is_empty() and data[0] is Dictionary:
 				response = data[0]
 			_answer(int(parts[0]), response)
-		"4":  # the server refused us; retrying with the same token would fail the same way
+		"4":  # the server refused us
 			var data: Variant = JSON.parse_string(body)
 			var reason := "The game server refused the connection"
+			var code := ""
 			if data is Dictionary:
 				reason = str(data.get("message", reason))
-			_keep_open = false
+				if data.get("data") is Dictionary:
+					code = str(data.data.get("code", ""))
 			_peer.close()
 			_peer = null
+			if code == RETRY_CODE:
+				# The server could not check the token just now (its database was busy): the
+				# token is fine, so try again in a moment, as after a dropped connection
+				_retry_in = RECONNECT_DELAY
+				return
+			# Otherwise retrying with the same token would fail the same way
+			_keep_open = false
 			connect_refused.emit(reason)
 
 

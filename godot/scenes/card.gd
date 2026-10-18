@@ -20,6 +20,8 @@ const PURPLE := Color("6a1b9a")
 const BLUE := Color("2196f3")
 const AMBER := Color("ffc107")
 const GREY := Color("9e9e9e")
+const JESTER_GOLD := Color("ffb300")
+const JESTER_SKIN := Color("ffe0b2")
 
 ## The card as the server sends it. Empty shows an empty slot.
 var card: Dictionary = {}:
@@ -166,9 +168,12 @@ func _draw() -> void:
 
 	var font := get_theme_default_font()
 	if card.get("isJoker", false):
-		_draw_star(Vector2(w * 0.25, w * 0.27), w * 0.17, PURPLE)
+		# A jester: a small one in the corner, which stays visible when cards overlap, and a
+		# big one in the middle, like the small and big suit on the other cards
+		_draw_jester(Vector2(w * 0.25, w * 0.29), w * 0.16)
+		_draw_jester(Vector2(w * 0.58, w * 0.76), w * 0.3)
 		var joker_size := int(w * 0.2)
-		draw_string(font, Vector2(0, h - w * 0.14), "JOKER", HORIZONTAL_ALIGNMENT_CENTER, w, joker_size, PURPLE)
+		draw_string(font, Vector2(0, h - w * 0.12), "JOKER", HORIZONTAL_ALIGNMENT_CENTER, w, joker_size, PURPLE)
 		return
 
 	var suit := str(card.get("suit", ""))
@@ -225,19 +230,56 @@ func _draw_suit(suit: String, center: Vector2, r: float, color: Color) -> void:
 			_fill([Vector2(0, -r * 0.1), Vector2(-r * 0.34, r), Vector2(r * 0.34, r)], center, color)
 
 
-func _draw_star(center: Vector2, r: float, color: Color) -> void:
+# A jester's head, as on the joker of a pack of cards: a hat with three floppy points and a bell
+# on each, a smiling face and a ruffled collar. `r` is about half its width; `center` is the
+# middle of the face's top half, so the hat reaches up about r and the collar down about 0.8r.
+func _draw_jester(center: Vector2, r: float) -> void:
+	var line := maxf(1.0, r * 0.05)
+	# The collar, under the chin: points in turn purple and red
+	for index in 5:
+		var left := -0.55 + index * 0.22
+		_fill([Vector2(left, 0.42) * r, Vector2(left + 0.22, 0.42) * r, Vector2(left + 0.11, 0.8) * r], center, PURPLE if index % 2 == 0 else RED)
+	# The hat's three points: red at the sides, purple in the middle, a gold bell on each
+	_fill(_hat_point(Vector2(-0.4, -0.02), Vector2(-0.78, -0.06), Vector2(-0.95, -0.5), Vector2(-0.55, -0.56), Vector2(-0.1, -0.28)), center, RED, r)
+	_fill(_hat_point(Vector2(0.1, -0.28), Vector2(0.55, -0.56), Vector2(0.95, -0.5), Vector2(0.78, -0.06), Vector2(0.4, -0.02)), center, RED, r)
+	_fill(_hat_point(Vector2(-0.24, -0.2), Vector2(-0.22, -0.72), Vector2(0.08, -0.98), Vector2(0.26, -0.6), Vector2(0.24, -0.2)), center, PURPLE, r)
+	for tip: Vector2 in [Vector2(-0.95, -0.5), Vector2(0.08, -0.98), Vector2(0.95, -0.5)]:
+		draw_circle(center + tip * r, r * 0.12, JESTER_GOLD, true, -1.0, true)
+		draw_circle(center + tip * r, r * 0.12, JESTER_GOLD.darkened(0.4), false, line, true)
+	# The face, with the hat's gold band across its forehead
+	var face := center + Vector2(0, 0.15) * r
+	draw_circle(face, r * 0.36, JESTER_SKIN, true, -1.0, true)
+	draw_circle(face, r * 0.36, JESTER_SKIN.darkened(0.35), false, line, true)
+	draw_arc(face, r * 0.36, deg_to_rad(198.0), deg_to_rad(342.0), 16, JESTER_GOLD, r * 0.15, true)
+	# Eyes, rosy cheeks, a red nose and a big smile
+	for side: float in [-1.0, 1.0]:
+		draw_circle(face + Vector2(side * 0.13, -0.02) * r, r * 0.045, BLACK, true, -1.0, true)
+		draw_circle(face + Vector2(side * 0.22, 0.1) * r, r * 0.065, Color(1.0, 0.45, 0.5, 0.55), true, -1.0, true)
+	draw_circle(face + Vector2(0, 0.06) * r, r * 0.06, RED, true, -1.0, true)
+	draw_arc(face + Vector2(0, 0.08) * r, r * 0.17, deg_to_rad(25.0), deg_to_rad(155.0), 12, BLACK, maxf(1.0, r * 0.045), true)
+
+
+# The outline of one point of the jester's hat: from one end of its base out to the tip along
+# a curve bent toward `out`, and back to the other end bent toward `back`. Every corner appears
+# once, or the shape cannot be filled.
+func _hat_point(start: Vector2, out: Vector2, tip: Vector2, back: Vector2, end: Vector2) -> Array:
 	var points: Array = []
-	for index in 10:
-		var length := r if index % 2 == 0 else r * 0.45
-		points.append(Vector2.UP.rotated(index * TAU / 10.0) * length)
-	_fill(points, center, color)
+	for step in 12:
+		var t := step / 6.0
+		var from := start if t < 1.0 else tip
+		var bend := out if t < 1.0 else back
+		var to := tip if t < 1.0 else end
+		t = t if t < 1.0 else t - 1.0
+		points.append(from.lerp(bend, t).lerp(bend.lerp(to, t), t))
+	points.append(end)
+	return points
 
 
-# A filled shape with smoothed edges. `offsets` are relative to `center`.
-func _fill(offsets: Array, center: Vector2, color: Color) -> void:
+# A filled shape with smoothed edges. `offsets` are relative to `center`, in units of `unit`.
+func _fill(offsets: Array, center: Vector2, color: Color, unit: float = 1.0) -> void:
 	var points := PackedVector2Array()
 	for offset: Vector2 in offsets:
-		points.append(center + offset)
+		points.append(center + offset * unit)
 	draw_colored_polygon(points, color)
 	points.append(points[0])
 	draw_polyline(points, color, 1.0, true)

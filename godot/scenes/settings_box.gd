@@ -2,7 +2,7 @@ class_name SettingsBox
 extends MenuOverlay
 ## Settings, behind the cog in the menu's top bar: music and sound effects on or off, the
 ## privacy policy and the terms of use, Google's privacy choices for ads (only for players
-## who must have them), and logging out. The profile (name, email, games,
+## who must have them), and logging out. The profile (name, mobile number, games,
 ## deleting the account) stays behind the player's name and coins.
 ##
 ## Built in code, like the search box of Play Now: a cream box in a teal frame with its title

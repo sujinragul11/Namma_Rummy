@@ -8,7 +8,6 @@ extends Control
 ## the new state with the one before it.
 
 const PILE_CARD_WIDTH := 104.0
-const MINI_CARD_WIDTH := 40.0
 const GROUP_GAP := 26.0
 const HAND_PADDING := 28.0
 const SELECT_LIFT := 26.0
@@ -17,10 +16,9 @@ const MOVE_SECONDS := 0.25
 const ARRIVE_SECONDS := 0.32
 const FLY_SECONDS := 0.4
 const DEAL_STAGGER := 0.05
-const OUTCOME_LABELS := {"winner": "Winner", "lost": "Lost", "dropped": "Dropped"}
-const DARK_TEXT := Color("333333")
-const DIM_TEXT := Color("666666")
-const WIN_TEXT := Color("2e7d32")
+## Out of the round, our cards lie in one stack face down: each card this far from the one under it.
+const STACK_STEP := 1.6
+const FOLD_SECONDS := 0.35
 const VALID_LABEL := Color("2e7d32")
 const INVALID_LABEL := Color("8d6e63")
 const ROUND_BUTTON := 52.0
@@ -47,19 +45,22 @@ var _seen: Dictionary = {}  # what the previous update showed, to animate what c
 var _dragging_id := ""
 var _drag_offset := Vector2.ZERO
 var _marker: ColorRect
-var _confetti: CPUParticles2D
-var _prize: CoinLabel
-var _result_key := ""
 var _was_my_turn := false
 var _last_tick := -1  # the second of the turn clock that last ticked aloud
-var _last_beep := -1  # the same for the countdown to the next round
 var _valid_melds: Dictionary = {}  # the melds in the hand at the last layout, to notice new ones
 var _quiet_melds := true  # melds that come with the deal are not announced
 var _deal_ends_at := 0  # Time.get_ticks_msec() when the last dealt card has arrived
+var _folded := false  # we are out of this round: our cards lie in one stack, face down
 var _joker_was_hidden := false  # Close Joker: the joker lay face down at the last update
 var _declare_submits := false  # the Declare button currently reads "Submit" (see _refresh_actions)
 var _my_coins: CoinLabel
 var _slot_lit := false  # the Declare slot is lit while a card is carried over it
+var _hand_light := 0.0  # 0 to 1: the gold frame round our own cards while it is our move
+var _hand_light_on := false
+var _hand_light_tween: Tween
+var _hand_beat := 0.0  # seconds the frame has been lit, for its pulse
+var _frame_style: StyleBoxFlat
+var _frame_glow_style: StyleBoxFlat
 
 @onready var _leave_button: Button = %LeaveButton
 @onready var _room_label: Label = %RoomLabel
@@ -82,15 +83,8 @@ var _slot_lit := false  # the Declare slot is lit while a card is carried over i
 @onready var _declare_button: Button = %DeclareButton
 @onready var _drop_button: Button = %DropButton
 @onready var _fly_layer: Control = %FlyLayer
-@onready var _result_overlay: Control = %ResultOverlay
-@onready var _result_panel: Control = %ResultPanel
-@onready var _result_title: Label = %ResultTitle
-@onready var _result_scroll: ScrollContainer = %ResultScroll
-@onready var _result_rows: VBoxContainer = %ResultRows
-@onready var _next_round_label: Label = %NextRoundLabel
-@onready var _leave_game_button: Button = %LeaveGameButton
-@onready var _play_again_button: Button = %PlayAgainButton
-@onready var _back_button: Button = %BackButton
+## The scorecard after a round and the result after the game (scenes/scorecard.gd)
+@onready var _scorecard: ScoreCard = %ResultOverlay
 
 
 func _ready() -> void:
@@ -98,10 +92,7 @@ func _ready() -> void:
 	Ui.tint_button(_discard_button, Ui.BLUE)
 	Ui.tint_button(_declare_button, Ui.ORANGE)
 	Ui.tint_button(_drop_button, Ui.RED)
-	Ui.tint_button(_back_button, Ui.PRIMARY)
-	Ui.tint_button(_leave_game_button, Ui.RED)
 	_status_label.add_theme_font_override("font", Ui.bold_font)
-	_result_title.add_theme_font_override("font", Ui.bold_font)
 	_joker_card.interactive = false
 	_deck_card.face_down = true
 	_dress_table()
@@ -111,22 +102,16 @@ func _ready() -> void:
 	_marker.visible = false
 	_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hand_area.add_child(_marker)
-	_confetti = _make_confetti()
-	_result_overlay.add_child(_confetti)
-	# At a table played for coins the result says where the pot goes, right under its title
-	_prize = CoinLabel.new()
-	_prize.name = "PrizeLabel"
-	_prize.font_size = 26
-	_prize.text_color = Color("b26a00")  # gold would not show on the white panel
-	_prize.visible = false
-	_result_title.add_sibling(_prize)
+	_my_badge.turn_tag = "YOUR TURN"
+	_my_badge.next_tag = "YOU'RE NEXT"
+	_frame_style = Ui.box(Color.TRANSPARENT, 24, 0.0, 0.0)
+	_frame_style.set_border_width_all(3)
+	_frame_glow_style = Ui.box(Color.TRANSPARENT, 30, 0.0, 0.0)
+	_frame_glow_style.draw_center = false
+	_hand_panel().draw.connect(_draw_hand_frame)
 
 	_leave_button.pressed.connect(_on_leave)
 	_declare_slot.gui_input.connect(_on_declare_slot_input)
-	_leave_game_button.pressed.connect(_on_leave)
-	_back_button.pressed.connect(Game.leave)
-	Ui.tint_button(_play_again_button, Ui.TEAL)
-	_play_again_button.pressed.connect(Game.play_again)
 	_sort_button.pressed.connect(_on_sort)
 	_group_button.pressed.connect(_on_group)
 	_discard_button.pressed.connect(_on_discard)
@@ -142,6 +127,16 @@ func _ready() -> void:
 	Game.busy_changed.connect(_refresh_actions)
 	Game.coins_changed.connect(_refresh_coins)
 	Game.action_failed.connect(_on_action_failed)
+	# Chat and emoji, over everything else on the table; they pop up beside the seats
+	var chat := TableChat.new()
+	chat.seat_of = _seat_rect
+	add_child(chat)
+	# Things to throw at another player's picture, with a button beside each opponent
+	var throws := TableThrows.new()
+	throws.badge_of = _badge_of
+	throws.keep_clear = _keep_clear.bind(chat)
+	throws.picker_opened.connect(chat.close)
+	add_child(throws)
 	# Cards fly in from the deck, so wait until the deck has been given its place on screen
 	get_tree().process_frame.connect(_on_first_frame, CONNECT_ONE_SHOT)
 
@@ -227,7 +222,10 @@ func _exit_tree() -> void:
 	Fx.clear()  # and a winner's fireworks do not follow the player to the next screen
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if _hand_light > 0.0:
+		_hand_beat += delta
+		_hand_panel().queue_redraw()  # the frame round our cards pulses
 	var playing := Game.status() == "playing"
 	_clock_label.visible = playing and Game.turn_ends_at > 0
 	if _clock_label.visible:
@@ -245,16 +243,6 @@ func _process(_delta: float) -> void:
 				Fx.shake(3.0, 0.15)
 	# Red creeps in from the edges of the screen while our own time runs out
 	Fx.danger(_clock_label.visible and _on_the_clock() and Game.seconds_until(Game.turn_ends_at) <= 5)
-
-	if _result_overlay.visible and Game.status() == "round_over":
-		var prefix := "You are out of the match. " if Game.me().get("eliminated", false) else ""
-		var until_deal := Game.seconds_until(Game.next_round_at)
-		_next_round_label.text = "%sNext %s in %ds" % [prefix, "deal" if Game.deals() > 0 else "round", until_deal]
-		if until_deal > 3:
-			_last_beep = -1
-		elif until_deal > 0 and until_deal != _last_beep:
-			_last_beep = until_deal
-			Sound.play("beep")
 
 
 # True while the clock is counting our own time: our turn, or our time to arrange our cards
@@ -294,13 +282,14 @@ func _refresh() -> void:
 	_refresh_status()
 	_refresh_actions()
 	_announce_declaration()
-	_refresh_result(is_pool)
+	_scorecard.refresh()
 	_remember()
 
 
 func _refresh_opponents(is_pool: bool) -> void:
-	var playing := Game.status() == "playing"
 	var declared_by := Game.declared_by()
+	var on_turn := _turn_owner()
+	var next_up := _next_up(on_turn)
 	var present := {}
 	for player: Dictionary in Game.players():
 		var id := str(player.get("id", ""))
@@ -334,8 +323,8 @@ func _refresh_opponents(is_pool: bool) -> void:
 			info += "  ·  %d pts" % int(player.get("totalScore", 0))
 		elif Game.deals() > 0:
 			info += "  ·  %d chips" % int(player.get("chips", 0))
-		var their_turn: bool = playing and Game.state.get("currentPlayer") == id
-		badge.show_player(str(player.get("username", "Player")), info, their_turn, sitting_out, _has_seen_joker(player))
+		badge.up_next = id == next_up
+		badge.show_player(str(player.get("username", "Player")), info, id == on_turn, sitting_out, _has_seen_joker(player))
 		badge.show_photo(id, int(player.get("avatar", 0)))
 
 	for id: String in _badges.keys():
@@ -343,6 +332,31 @@ func _refresh_opponents(is_pool: bool) -> void:
 			_badges[id].queue_free()
 			_badges.erase(id)
 	_place_opponents()
+
+
+# Whose turn it is to draw and discard. Nobody's between rounds, and nobody's while the others
+# arrange their cards after a declaration (the clock is theirs then, not the declarer's).
+func _turn_owner() -> String:
+	if Game.status() != "playing" or not Game.declared_by().is_empty():
+		return ""
+	return str(Game.state.get("currentPlayer", ""))
+
+
+# Who plays after `on_turn`: the next seat still in the round. Seats follow the player list,
+# as on the server (GameEngine.nextPlayer skips everyone who is not active).
+func _next_up(on_turn: String) -> String:
+	var players := Game.players()
+	var seat := -1
+	for index in players.size():
+		if str(players[index].get("id", "")) == on_turn:
+			seat = index
+	if seat == -1:
+		return ""
+	for step in range(1, players.size()):
+		var player: Dictionary = players[(seat + step) % players.size()]
+		if player.get("status") == "active" and not player.get("eliminated", false):
+			return str(player.get("id", ""))
+	return ""
 
 
 # Close Joker: the green dot on a badge, for a player who has seen the joker while it is still
@@ -423,10 +437,13 @@ func _refresh_status() -> void:
 		text = "Select a card, then Discard or Declare"
 	else:
 		text = "Waiting for %s" % Game.player_name(Game.state.get("currentPlayer"))
+		if _next_up(_turn_owner()) == Game.player_id:
+			text += "  ·  You're next"
 	_status_label.text = text
 
 	# The turn arriving is worth a nudge: the text swells, and a phone buzzes
 	var my_turn := Game.is_my_turn()
+	_status_label.add_theme_color_override("font_color", Ui.GOLD if _turn_owner() == Game.player_id else Color.WHITE)
 	if my_turn and not _was_my_turn:
 		Ui.pulse.call_deferred(_status_label, 1.06)
 		Input.vibrate_handheld(40)
@@ -473,7 +490,7 @@ func _refresh_actions() -> void:
 	if Game.state.is_empty():
 		return
 	var can_discard := _can_discard()
-	_sort_button.disabled = Game.hand().is_empty()
+	_sort_button.disabled = Game.hand().is_empty() or _out_of_round()
 	_group_button.disabled = _selected.size() < 2
 	_discard_button.disabled = not can_discard or _selected.size() != 1
 	_drop_button.disabled = not _can_draw()
@@ -490,8 +507,49 @@ func _refresh_actions() -> void:
 	var points: int = Rummy.evaluate_hand(Game.meld_cards(), Game.state.get("joker")).points
 	var me := Game.me()
 	var sitting_out: bool = me.get("eliminated", false) or me.get("status") == "dropped"
-	_my_badge.show_player(str(Game.user.get("username", "You")), "Points in hand: %d" % points, Game.is_my_turn(), sitting_out, _has_seen_joker(me))
+	var on_turn := _turn_owner()
+	_my_badge.up_next = _next_up(on_turn) == Game.player_id
+	_my_badge.show_player(str(Game.user.get("username", "You")), "Points in hand: %d" % points, on_turn == Game.player_id, sitting_out, _has_seen_joker(me))
 	_my_badge.show_photo(Game.player_id, int(me.get("avatar", 0)))
+	# Our cards are lit while the next move is ours: our turn, or arranging after a declaration
+	_light_hand(on_turn == Game.player_id or arranging)
+
+
+func _hand_panel() -> Control:
+	return _hand_area.get_parent() as Control
+
+
+func _light_hand(on: bool) -> void:
+	if on == _hand_light_on:
+		return
+	_hand_light_on = on
+	if on:
+		_hand_beat = 0.0
+	if _hand_light_tween != null:
+		_hand_light_tween.kill()
+	_hand_light_tween = create_tween()
+	_hand_light_tween.tween_property(self, "_hand_light", 1.0 if on else 0.0, PlayerBadge.GLOW_SECONDS).set_trans(Tween.TRANS_SINE)
+	_hand_light_tween.tween_callback(_hand_panel().queue_redraw)  # the last frame of the fade
+
+
+# The frame round our own cards while the move is ours: a faint gold wash, a gold edge that
+# pulses with the badge's light, and a soft glow spreading out from the edge.
+func _draw_hand_frame() -> void:
+	if _hand_light <= 0.0:
+		return
+	var panel := _hand_panel()
+	var pulse := 0.5 - 0.5 * cos(_hand_beat * TAU / PlayerBadge.BEAT_SECONDS)
+	# Below the lift of a selected card, inside the edges of the screen
+	var frame := Rect2(Vector2.ZERO, panel.size).grow_individual(-10.0, -12.0, -10.0, -2.0)
+	for layer in 4:
+		var spread := 3.0 + layer * 3.5 + 3.0 * pulse
+		_frame_glow_style.set_corner_radius_all(int(24 + spread))
+		_frame_glow_style.set_border_width_all(4)
+		_frame_glow_style.border_color = Color(Ui.GOLD, (0.26 - layer * 0.06) * _hand_light)
+		panel.draw_style_box(_frame_glow_style, frame.grow(spread))
+	_frame_style.bg_color = Color(Ui.GOLD, (0.06 + 0.05 * pulse) * _hand_light)
+	_frame_style.border_color = Color(Ui.GOLD, (0.7 + 0.3 * pulse) * _hand_light)
+	panel.draw_style_box(_frame_style, frame)
 
 
 # What this update showed, kept so the next one can be compared with it.
@@ -719,6 +777,11 @@ func _place_cards(animate: bool = true) -> void:
 	if _cards.is_empty() or groups.is_empty():
 		_hide_group_labels(0)
 		return
+	if _out_of_round():
+		_fold_hand(animate)
+		return
+	if _folded:
+		_unfold_hand()
 
 	var group_count := groups.size()
 	var overlapped := _cards.size() - group_count
@@ -760,6 +823,80 @@ func _place_cards(animate: bool = true) -> void:
 	_hide_group_labels(group_count)
 	_hand_area.move_child(_marker, -1)
 	_note_new_melds(cards_by_group, joker)
+
+
+# Out of this round: dropped, a wrong declaration, too many turns missed, or left mid-round.
+# The next deal brings us back in.
+func _out_of_round() -> bool:
+	return Game.me().get("status") == "dropped"
+
+
+# Our cards come together in one stack in the middle of the hand and turn face down, and stay
+# like that until the next deal. Nothing can be done with them any more.
+func _fold_hand(animate: bool) -> void:
+	_selected = []
+	_hide_group_labels(0)
+	if not _dragging_id.is_empty():
+		_dragging_id = ""
+		_marker.visible = false
+	var ids: Array = []
+	for group: Array in Game.groups:
+		for id: Variant in group:
+			if _cards.has(id) and not ids.has(id):
+				ids.append(id)
+	for id: Variant in _cards:
+		if not ids.has(id):
+			ids.append(id)
+
+	var folding := animate and not _folded and _laid_out
+	_folded = true
+	var spread := (ids.size() - 1) * STACK_STEP
+	var left := (_hand_area.size.x - _card_width - spread) / 2.0
+	var top := SELECT_LIFT + 6.0
+	for index in ids.size():
+		var view: CardView = _cards[ids[index]]
+		_hand_area.move_child(view, index)  # the last card lies on top
+		view.interactive = false
+		view.draggable = false
+		view.selected = false
+		view.highlighted = false
+		view.remove_meta("arriving")  # a card still on its way from the deck goes to the stack instead
+		var target := Vector2(left + index * STACK_STEP, top - index * STACK_STEP * 0.5)
+		if folding:
+			var delay := index * 0.02
+			view.glide_to(target, FOLD_SECONDS, delay)
+			_turn_down(view, delay)
+		else:
+			view.stop_gliding()
+			view.position = target
+			view.scale = Vector2.ONE
+			view.rotation = 0.0
+			view.face_down = true
+	_hand_area.move_child(_marker, -1)
+	if folding:
+		Sound.play("shuffle", -6.0)
+
+
+# A card on its way to the stack straightens up, then turns over.
+func _turn_down(view: CardView, delay: float) -> void:
+	var tween := view.create_tween()
+	if delay > 0.0:
+		tween.tween_interval(delay)
+	tween.tween_property(view, "scale", Vector2.ONE, FOLD_SECONDS)
+	tween.parallel().tween_property(view, "rotation", 0.0, FOLD_SECONDS)
+	tween.tween_property(view, "scale:x", 0.0, 0.09)
+	tween.tween_callback(func() -> void: view.face_down = true)
+	tween.tween_property(view, "scale:x", 1.0, 0.09)
+
+
+# Back in play (normally a fresh deal has replaced the stack by now): the cards can be used again.
+func _unfold_hand() -> void:
+	_folded = false
+	for view: CardView in _cards.values():
+		view.interactive = true
+		view.draggable = true
+		if not view.has_meta("arriving"):
+			view.face_down = false
 
 
 # A chime when the player has just formed a meld that was not in the hand before.
@@ -1177,195 +1314,25 @@ func _on_leave() -> void:
 		Ui.confirm("Leave game", Ui.leave_game_warning(), "Leave", Game.leave)
 
 
-# ---------- round and game results ----------
-
-func _refresh_result(is_pool: bool) -> void:
-	var status := Game.status()
-	var result: Variant = Game.state.get("lastResult")
-	var showing: bool = status in ["round_over", "finished"] and result is Dictionary
-	if not showing:
-		_result_overlay.visible = false
-		_confetti.emitting = false
-		_result_key = ""
-		return
-
-	var finished := status == "finished"
-	_back_button.visible = finished
-	_play_again_button.visible = finished  # a new table with the same rules, for the same players
-	_leave_game_button.visible = not finished
-	_next_round_label.visible = not finished
-
-	# The same result arrives again with every update; rebuild the rows only when it changes
-	var key := "%s/%s/%s" % [Game.state.get("gameId"), result.get("round"), status]
-	if key == _result_key:
-		return
-	_result_key = key
-
-	var winner: Variant = result.get("matchWinner") if finished else result.get("winner")
-	var i_won: bool = winner == Game.player_id
-	if finished:
-		if winner == null:
-			_result_title.text = "Game over"
-		elif i_won:
-			_result_title.text = "You won!"
-		else:
-			_result_title.text = "%s won the game" % Game.player_name(winner)
-	else:
-		var round_name := "deal %d" % int(result.get("round", 1)) if Game.deals() > 0 else "round %d" % int(result.get("round", 1))
-		_result_title.text = "%s won %s" % ["You" if i_won else Game.player_name(winner), round_name]
-	_result_title.add_theme_color_override("font_color", WIN_TEXT if i_won else DARK_TEXT)
-
-	# The pot is paid when the whole game is over, not after a round of it. At a Points table
-	# for coins a point the winner gets what the others' points cost instead.
-	var prize := Game.pot()
-	if Game.point_value() > 0:
-		for row: Dictionary in result.get("players", []):
-			if row.get("id") == winner:
-				prize = int(row.get("coins", 0))
-	_prize.visible = finished and winner != null and prize > 0
-	_prize.amount = prize
-	_prize.suffix = "coins won" if i_won else "coins go to %s" % Game.player_name(winner)
-
-	for child in _result_rows.get_children():
-		_result_rows.remove_child(child)
-		child.queue_free()
-	var rows: Array = result.get("players", [])
-	for index in rows.size():
-		var entry := _build_result_row(rows[index], is_pool)
-		_result_rows.add_child(entry)
-		# The players are read out one after another, each with a tick
-		Ui.pop_in.call_deferred(entry, 0.25 + index * 0.12)
-		Sound.play_later("count", 0.25 + index * 0.12)
-	_result_scroll.custom_minimum_size.y = minf(400.0, rows.size() * 114.0)
-
-	# The result drops in; the winner gets confetti
-	_result_overlay.visible = true
-	_result_overlay.modulate.a = 0.0
-	_result_overlay.create_tween().tween_property(_result_overlay, "modulate:a", 1.0, 0.2)
-	Ui.pop_in.call_deferred(_result_panel)
-	_confetti.position = Vector2(size.x / 2.0, -20.0)
-	_confetti.emission_rect_extents = Vector2(size.x / 2.0, 6.0)
-	_confetti.emitting = i_won
-	if i_won:
-		Input.vibrate_handheld(120)
-		Sound.play("win")
-		Sound.duck(3.0)  # the music steps back for the fanfare
-		Fx.victory(finished)  # fireworks and paper; the whole show for winning the game
-	else:
-		Sound.play("lose")
-		Fx.flash(Color(0.45, 0.0, 0.0, 0.4), 0.7)
+# Where a player sits on screen, for the chat: our own badge or an opponent's.
+func _seat_rect(user_id: String) -> Rect2:
+	var badge: Control = _my_badge if user_id == Game.player_id else _badges.get(user_id)
+	if badge == null or not badge.is_visible_in_tree():
+		return Rect2()
+	return badge.get_global_rect()
 
 
-func _build_result_row(row: Dictionary, is_pool: bool) -> Control:
-	var entry := VBoxContainer.new()
-	entry.add_theme_constant_override("separation", 6)
-
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 18)
-	var is_winner: bool = row.get("outcome") == "winner"
-	var player_name := str(row.get("username", "Player"))
-	if row.get("id") == Game.player_id:
-		player_name += "  (you)"
-	var name_label := _text(player_name, 24, WIN_TEXT if is_winner else DARK_TEXT)
-	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(name_label)
-
-	var outcome := str(OUTCOME_LABELS.get(row.get("outcome"), ""))
-	if is_pool and row.get("eliminated", false) and not is_winner:
-		outcome += "  ·  eliminated"
-	header.add_child(_text(outcome, 20, DIM_TEXT))
-
-	var points := "%d pts" % int(row.get("points", 0))
-	if is_pool:
-		points += "  (total %d)" % int(row.get("totalScore", 0))
-	elif row.has("chips"):
-		# Deals Rummy: the chips that changed hands, and what the player has now
-		points += "  ·  %+d chips (%d)" % [int(row.get("chipsWon", 0)), int(row.get("chips", 0))]
-	if row.has("coins"):
-		var coins := int(row.get("coins", 0))
-		points += "  ·  %s%s coins" % ["+" if coins > 0 else "", Ui.coins_text(coins)]
-	header.add_child(_text(points, 24, DARK_TEXT))
-	entry.add_child(header)
-
-	# The hand as it was scored, group by group
-	var melds := HBoxContainer.new()
-	melds.add_theme_constant_override("separation", 12)
-	for meld: Dictionary in row.get("melds", []):
-		var group := HBoxContainer.new()
-		group.add_theme_constant_override("separation", -int(MINI_CARD_WIDTH * 0.42))
-		for card: Dictionary in meld.get("cards", []):
-			var view := CardView.new()
-			view.interactive = false
-			view.card = card
-			view.set_width(MINI_CARD_WIDTH)
-			group.add_child(view)
-		melds.add_child(group)
-	var friend_button := _friend_button(row)
-	if friend_button != null:
-		# At the right end of the cards, where it fits without making the row taller
-		var gap := Control.new()
-		gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		melds.add_child(gap)
-		melds.add_child(friend_button)
-	entry.add_child(melds)
-	return entry
+# A player's badge, for the things thrown at pictures: our own or an opponent's, or null.
+func _badge_of(user_id: String) -> PlayerBadge:
+	return _my_badge if user_id == Game.player_id else _badges.get(user_id)
 
 
-# "Add friend" for a player met at this table who is not in the friends list yet.
-func _friend_button(row: Dictionary) -> Button:
-	var id := str(row.get("id", ""))
-	var username := str(row.get("username", ""))
-	if id == Game.player_id or username.is_empty():
-		return null
-	for known: Dictionary in Game.friends + Game.friend_asked:
-		if str(known.get("id", "")) == id:
-			return null
-
-	var button := Button.new()
-	button.name = "AddFriendButton"
-	button.text = "Add friend"
-	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	button.add_theme_font_size_override("font_size", 20)
-	Ui.tint_button(button, Ui.TEAL)
-	button.pressed.connect(func() -> void:
-		Game.add_friend(username)
-		button.disabled = true
-		button.text = "Asked"
-	)
-	return button
-
-
-func _text(text: String, font_size: int, color: Color) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", color)
-	return label
-
-
-# Coloured paper falling from the top of the screen, for the winner.
-func _make_confetti() -> CPUParticles2D:
-	var confetti := CPUParticles2D.new()
-	confetti.emitting = false
-	confetti.amount = 150
-	confetti.lifetime = 3.4
-	confetti.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
-	confetti.direction = Vector2.DOWN
-	confetti.spread = 30.0
-	confetti.gravity = Vector2(0, 380)
-	confetti.initial_velocity_min = 90.0
-	confetti.initial_velocity_max = 300.0
-	confetti.angular_velocity_min = -400.0
-	confetti.angular_velocity_max = 400.0
-	confetti.angle_max = 360.0
-	confetti.scale_amount_min = 8.0
-	confetti.scale_amount_max = 15.0
-
-	var paper := Gradient.new()
-	paper.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
-	paper.offsets = PackedFloat32Array([0.0, 0.17, 0.34, 0.51, 0.68, 0.85])
-	paper.colors = PackedColorArray([
-		Color("ffca28"), Color("ef5350"), Color("42a5f5"), Color("66bb6a"), Color("ab47bc"), Color("ffffff"),
-	])
-	confetti.color_initial_ramp = paper
-	return confetti
+# What the buttons for throwing things must never cover: everything a player taps or reads
+# during a turn.
+func _keep_clear(chat: Control) -> Array:
+	return [
+		_leave_button, _leave_button.get_parent().get_node_or_null("SoundSwitches"), _room_label.get_parent(),
+		_declare_slot, _joker_card, _deck_card, _deck_label, _open_card, _status_label, _clock_label,
+		_hand_area, _my_coins_pill, _sort_button, _group_button, _discard_button, _declare_button, _drop_button,
+		chat.get_node_or_null("ChatButtons"),
+	]

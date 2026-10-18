@@ -20,6 +20,7 @@ func _ready() -> void:
 	Game.player_id = "1"
 	Game.coins = 155060
 	var main: Control = (load("res://scenes/main.tscn") as PackedScene).instantiate()
+	main.set("wait_for_server", false)  # no server here: the menu at once
 	add_child(main)
 	_run(main)
 

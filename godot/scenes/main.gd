@@ -2,6 +2,10 @@ extends Control
 ## Shows the screen that fits the session: home (login or menu), the lobby, or the table.
 ## Screens never switch to one another directly; they change the session and this follows.
 ##
+## Before any of them, the loading screen: when the app starts, until the game server has
+## answered (and accepted a saved login), and after logging in, until the game connection is
+## open. So the menu and the player's picture never show before the game can be played.
+##
 ## It also looks after what a phone needs around the screens: keeping clear of the notch,
 ## the back button, and catching up after the app was in the background.
 
@@ -12,8 +16,13 @@ const SCREENS := {
 }
 const FADE_SECONDS := 0.22
 
+## False leaves out the loading screen: for tests that fake a login without a server.
+var wait_for_server := true
+
 var _showing := ""
 var _drift: DriftingSuits
+var _server_seen := false  # the loading screen has seen the server answer since the app started
+var _connected_as := ""  # the player whose login the loading screen saw accepted; "" for none
 
 @onready var _screen: Control = %Screen
 
@@ -46,9 +55,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		_on_back()
 
 
+## True while the loading screen is up. Tests wait for it to go before they look for the screens.
+func loading() -> bool:
+	return _showing == "loading"
+
+
 func _refresh() -> void:
+	if not Game.is_logged_in():
+		_connected_as = ""  # whoever logs in next waits for the game connection again
 	var wanted := "home"
-	if Game.is_logged_in():
+	if _must_wait():
+		wanted = "loading"
+	elif Game.is_logged_in():
 		match Game.status():
 			"waiting":
 				wanted = "lobby"
@@ -57,18 +75,42 @@ func _refresh() -> void:
 	if wanted == _showing:
 		return
 
-	if not _showing.is_empty():
-		Sound.play("whoosh")  # not for the very first screen
+	# Not for the very first screen, and not into or out of the loading screen, which has its own
+	if not _showing.is_empty() and _showing != "loading" and wanted != "loading":
+		Sound.play("whoosh")
 	Sound.music("table" if wanted == "table" else "menu")
 	_drift.visible = wanted != "table"  # nothing moves behind the cards during a game
+	var first := _showing.is_empty()
 	_showing = wanted
 	for child in _screen.get_children():
 		child.queue_free()
+	if wanted == "loading":
+		var loading_screen := LoadingScreen.new()
+		loading_screen.name = "LoadingScreen"
+		loading_screen.after_login = not first  # at the start it takes over from the boot splash
+		loading_screen.finished.connect(_on_loaded)
+		_screen.add_child(loading_screen)
+		return
 	var screen: Control = SCREENS[wanted].instantiate()
 	_screen.add_child(screen)
 	# The new screen fades in over the felt
 	screen.modulate.a = 0.0
 	screen.create_tween().tween_property(screen, "modulate:a", 1.0, FADE_SECONDS)
+
+
+func _must_wait() -> bool:
+	if not wait_for_server:
+		return false
+	if Game.is_logged_in():
+		return _connected_as != Game.player_id
+	return not _server_seen
+
+
+# The server has answered and, with a login, accepted it: the game can be shown.
+func _on_loaded() -> void:
+	_server_seen = true
+	_connected_as = Game.player_id if Game.is_logged_in() else ""
+	_refresh()
 
 
 # The back button never throws the player out of a game without asking.

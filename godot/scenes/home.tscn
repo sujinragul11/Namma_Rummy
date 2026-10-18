@@ -68,25 +68,50 @@ unique_name_in_owner = true
 theme_override_font_sizes/font_size = 30
 text = "Login"
 
+[node name="AuthInfoLabel" type="Label" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+visible = false
+theme_override_colors/font_color = Color(0.784314, 0.901961, 0.788235, 1)
+theme_override_font_sizes/font_size = 20
+autowrap_mode = 3
+
 [node name="UsernameEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
 unique_name_in_owner = true
 placeholder_text = "Username"
 max_length = 20
 
-[node name="EmailEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+[node name="PhoneRow" type="HBoxContainer" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
 unique_name_in_owner = true
-placeholder_text = "Email"
-virtual_keyboard_type = 5
+theme_override_constants/separation = 10
 
-[node name="PhoneEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+[node name="CountryCodeEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form/PhoneRow"]
 unique_name_in_owner = true
-placeholder_text = "Mobile number (10 digits)"
+custom_minimum_size = Vector2(112, 0)
+tooltip_text = "Country code"
+text = "+91"
+alignment = 1
+max_length = 4
+virtual_keyboard_type = 4
+
+[node name="PhoneEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form/PhoneRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+placeholder_text = "Mobile number"
 max_length = 20
 virtual_keyboard_type = 4
 
 [node name="IdentifierEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
 unique_name_in_owner = true
-placeholder_text = "Email, phone or username"
+placeholder_text = "Mobile number or username"
+
+[node name="OtpEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+visible = false
+theme_override_font_sizes/font_size = 34
+placeholder_text = "6-digit code"
+alignment = 1
+max_length = 6
+virtual_keyboard_type = 2
 
 [node name="PasswordEdit" type="LineEdit" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
 unique_name_in_owner = true
@@ -97,6 +122,19 @@ secret = true
 [node name="SubmitButton" type="Button" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
 unique_name_in_owner = true
 text = "Login"
+
+[node name="ResendButton" type="Button" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+visible = false
+theme_override_font_sizes/font_size = 20
+text = "Send the code again"
+flat = true
+
+[node name="ForgotButton" type="Button" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
+unique_name_in_owner = true
+theme_override_font_sizes/font_size = 20
+text = "Forgot password?"
+flat = true
 
 [node name="SwitchButton" type="Button" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
 unique_name_in_owner = true

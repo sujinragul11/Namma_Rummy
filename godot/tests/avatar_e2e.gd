@@ -58,10 +58,10 @@ func _run() -> void:
 	var a := _new_client()
 	var a_name := "pa_" + tag
 	var b_name := "pb_" + tag
-	var r: Dictionary = await a.register(a_name, "pa_%s@test.local" % tag, "96%08d" % number, PASSWORD)
+	var r: Dictionary = await a.register(a_name, "96%08d" % number, PASSWORD)
 	_check("A registers, without a photo", r.ok and a.my_avatar() == 0, str(r.get("error", "")))
 	Game.remember_login = false
-	r = await Game.register(b_name, "pb_%s@test.local" % tag, "86%08d" % number, PASSWORD)
+	r = await Game.register(b_name, "86%08d" % number, PASSWORD)
 	_check("B (the Game autoload) registers", r.ok, str(r.get("error", "")))
 	_check("both are connected", await _until(func() -> bool: return a.is_online() and Game.is_online()))
 

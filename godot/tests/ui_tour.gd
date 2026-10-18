@@ -45,6 +45,7 @@ func _run() -> void:
 
 	# ---------- login and register ----------
 	await _wait(0.7)
+	await _until(func() -> bool: return not _main.loading(), 15.0)  # the logo stays until the server answers
 	_check("starts on the login form", _node("AuthPanel").visible and not _node("MenuPanel").visible)
 	_check("the logo is shown", _node("Logo").texture != null and _node("Logo").size.y > 200.0, str(_node("Logo").size))
 	await _shot("login")
@@ -59,8 +60,9 @@ func _run() -> void:
 	_check("OK closes the message", await _until(func() -> bool: return not message_box.visible, 2.0))
 
 	await _press("SwitchButton")
+	_check("the sign-up form asks for no email", not _has("EmailEdit") and _node("PhoneEdit").is_visible_in_tree() and not _node("IdentifierEdit").is_visible_in_tree())
+	_check("the country code starts as India's", _node("CountryCodeEdit").text == "+91" and _node("CountryCodeEdit").is_visible_in_tree(), _node("CountryCodeEdit").text)
 	_node("UsernameEdit").text = name_a
-	_node("EmailEdit").text = name_a + "@test.local"
 	await _wait(0.1)
 	await _shot("register")
 
@@ -87,10 +89,15 @@ func _run() -> void:
 	_check("a number that is not a mobile number is refused before anything is sent", await _until(func() -> bool: return message_box.visible, 2.0) and message_box.dialog_text.begins_with("That mobile number is not valid.") and not Game.is_logged_in(), message_box.dialog_text)
 	await _shot("register-refused")
 	await _press_in_box(message_box, "the message's OK button")
+	_node("PhoneEdit").text = "99999 99999"
+	await _press("SubmitButton")
+	_check("a made-up number is refused before anything is sent", await _until(func() -> bool: return message_box.visible, 2.0) and message_box.dialog_text.begins_with("That does not look like a real mobile number.") and not Game.is_logged_in(), message_box.dialog_text)
+	await _press_in_box(message_box, "the message's OK button")
 	_node("PhoneEdit").text = "9" + tag.substr(0, 9)
 
 	await _press("SubmitButton")
 	_check("registered and connected", await _until(func() -> bool: return Game.is_logged_in() and Game.is_online()))
+	await _until(func() -> bool: return not _main.loading(), 15.0)  # the logo stays until the server answers
 	await _wait(0.5)
 	_check("the menu greets the player", _node("MenuPanel").visible and _node("WelcomeLabel").text == name_a, _node("WelcomeLabel").text)
 	_check("the menu shows the connection", _node("StatusLabel").text == "Online", _node("StatusLabel").text)
@@ -116,7 +123,7 @@ func _run() -> void:
 	var b := GameClient.new()
 	b.remember_login = false
 	add_child(b)
-	var r: Dictionary = await b.register(name_b, name_b + "@test.local", "8" + tag.substr(0, 9), "secret12")
+	var r: Dictionary = await b.register(name_b, "8" + tag.substr(0, 9), "secret12")
 	await _until(func() -> bool: return b.is_online())
 	r = await b.join_by_code(room)
 	_check("the table opens when the opponent joins", r.ok and await _until(func() -> bool: return _has("HandArea") and Game.hand().size() == 13))
@@ -132,6 +139,12 @@ func _run() -> void:
 	_check("the room is named", _node("RoomLabel").text.begins_with(room) and _node("JokerLabel").text.contains("As wild"), _node("JokerLabel").text)
 	_check("the top bar shows the value of a point", _node("RoomLabel").text.ends_with("10 coins a point") and b.coins == 49200, _node("RoomLabel").text)
 	_check("the opponent has a badge", table._badges.size() == 1)
+	var my_badge: PlayerBadge = _node("MyBadge")
+	var their_badge: PlayerBadge = table._badges.values()[0]
+	_check("our turn: our badge is lit and tagged", my_badge._is_turn and my_badge._glow == 1.0 and my_badge.turn_tag == "YOUR TURN", "%s %s" % [my_badge._is_turn, my_badge._glow])
+	_check("our turn: the frame round our cards is lit", table._hand_light == 1.0, str(table._hand_light))
+	_check("our turn: the opponent's badge is dark, tagged as next", not their_badge._is_turn and their_badge._glow == 0.0 and their_badge.up_next and not my_badge.up_next)
+	_check("our turn: the status line is gold", _node("StatusLabel").get_theme_color("font_color") == Ui.GOLD)
 	_check("cards are big enough for a finger", table._card_width >= 112.0 and _node("DiscardButton").size.y >= 54.0, "card %s, button %s" % [table._card_width, _node("DiscardButton").size.y])
 	_check("the hand fits on the screen", table._spans[-1].right <= _node("HandArea").size.x and table._spans[0].left >= 0.0, "%s of %s" % [table._spans[-1].right, _node("HandArea").size.x])
 	await _shot("table-dealt")
@@ -234,11 +247,12 @@ func _run() -> void:
 	_check("after declaring, the player waits for the opponent", await _until(func() -> bool: return _node("StatusLabel").text == "You declared! The others are arranging their cards") and not _node("ResultOverlay").visible, _node("StatusLabel").text)
 	_check("the opponent's badge says what they are doing", table._badges.values()[0]._info_label.text == "Arranging...", table._badges.values()[0]._info_label.text)
 	await _wait(0.7)
+	_check("after declaring nobody is lit as on turn", not my_badge._is_turn and my_badge._glow == 0.0 and their_badge._glow == 0.0 and table._hand_light == 0.0, "%s %s %s" % [my_badge._glow, their_badge._glow, table._hand_light])
 	await _shot("declared-waiting")
 	r = await b.submit_hand()
 	_check("the result appears once the opponent's cards are in", r.ok and await _until(func() -> bool: return _node("ResultOverlay").visible))
 	await _wait(0.9)
-	_check("the winner is announced", _node("ResultTitle").text == "You won!" and _node("BackButton").visible and not _node("LeaveGameButton").visible, _node("ResultTitle").text)
+	_check("the winner is announced", _node("ResultTitle").text == "You won!" and _node("BackButton").visible and not _has("LeaveGameButton"), _node("ResultTitle").text)
 	_check("both hands are listed", _node("ResultRows").get_child_count() == 2)
 	# The loser pays their points at 10 coins each
 	var lost := 0
@@ -246,10 +260,12 @@ func _run() -> void:
 		if row.get("id") != Game.player_id:
 			lost = mini(int(row.get("points", 0)), 80) * 10
 	# (In this fixed deal the opponent's cards make a valid hand once sorted: 0 points, nothing to pay)
-	var prize_ok: bool = _node("PrizeLabel").visible and _node("PrizeLabel")._label.text == "%s coins won" % Ui.coins_text(lost) if lost > 0 else not _node("PrizeLabel").visible
-	_check("the result says what was won", prize_ok, "%d | %s" % [lost, _node("PrizeLabel")._label.text])
+	# Our row of the scorecard shows the coins won under the total; nothing when nothing was won
+	var my_texts := _my_result_texts()
+	var prize_ok: bool = my_texts.has("+%s" % Ui.coins_text(lost)) if lost > 0 else not my_texts.any(func(text: String) -> bool: return text.begins_with("+"))
+	_check("the result says what was won", prize_ok, "%d | %s" % [lost, my_texts])
 	_check("the loser pays the winner their points", await _until(func() -> bool: return Game.coins == 50000 + lost and b.coins == 50000 - lost), "%d / %d" % [Game.coins, b.coins])
-	_check("the winner gets confetti", table._confetti.emitting)
+	_check("the winner gets confetti", _node("ResultOverlay")._confetti.emitting)
 	_check("the finishing card has landed on the open pile", _node("OpenCard").card.get("id") == king and _node("FlyLayer").get_child_count() == 0, str(_node("OpenCard").card))
 	await _shot("result")
 	await _press("BackButton")
@@ -267,7 +283,7 @@ func _run() -> void:
 	await _wait(1.9)
 	table = _screen()
 	hand_area = _node("HandArea")
-	_check("the player waits for the opponent", _node("StatusLabel").text == "Waiting for %s" % name_b, _node("StatusLabel").text)
+	_check("the player waits for the opponent, and is told they play next", _node("StatusLabel").text == "Waiting for %s  ·  You're next" % name_b, _node("StatusLabel").text)
 	_check("a pool game shows round and total", _node("RoomLabel").text.contains("Pool 101") and _node("TotalLabel").visible and _node("DropButton").disabled, _node("RoomLabel").text)
 	await _shot("table-waiting")
 
@@ -324,14 +340,18 @@ func _run() -> void:
 	await _press("DropButton")
 	_check("dropping asks first", await _until(func() -> bool: return question_box.visible))
 	await _press_in_box(question_box, "the question's Drop button")
+	# Out of the round, our cards gather into one stack and turn face down (under the result)
+	_check("dropping turns our hand into one face-down stack", await _until(func() -> bool: return table._folded and table._cards.values().all(func(view: CardView) -> bool: return view.face_down and not view.interactive), 3.0))
 	_check("the round result appears", await _until(func() -> bool: return _node("ResultOverlay").visible))
 	await _wait(0.8)
-	_check("a pool round shows the countdown", _node("ResultTitle").text == "%s won round 1" % name_b and _node("NextRoundLabel").text.begins_with("Next round in ") and _node("LeaveGameButton").visible and not _node("BackButton").visible, "%s | %s" % [_node("ResultTitle").text, _node("NextRoundLabel").text])
-	_check("no confetti for the loser", not table._confetti.emitting)
+	_check("a pool round shows the countdown", _node("ResultTitle").text == "%s won round 1" % name_b and _node("NextRoundLabel").text.begins_with("Next round in "), "%s | %s" % [_node("ResultTitle").text, _node("NextRoundLabel").text])
+	# The user's choice (2026-10-18): no Leave game button between rounds, only once the game is over
+	_check("between rounds the box has no buttons", not _has("LeaveGameButton") and not _node("BackButton").visible and not _node("PlayAgainButton").visible)
+	_check("no confetti for the loser", not _node("ResultOverlay")._confetti.emitting)
 	await _shot("round-over")
 
-	await _press("LeaveGameButton")
-	await _until(func() -> bool: return question_box.visible)
+	_go_back()
+	_check("between rounds the back button asks before leaving", await _until(func() -> bool: return question_box.visible, 2.0))
 	await _press_in_box(question_box, "the question's Leave button")
 	_check("leaving returns to the menu", await _until(func() -> bool: return _has("MenuPanel") and _node("MenuPanel").visible))
 	await b.leave()
@@ -476,6 +496,10 @@ func _see_the_joker_open(table: Variant, b: GameClient) -> void:
 	await _wait(0.3)
 	await _press("DiscardButton")
 	_check("close joker: the turn passes", await _until(func() -> bool: return b.is_my_turn()))
+	await _wait(0.5)  # the light moving over
+	_check("close joker: the light has moved to the opponent's badge", their_badge._is_turn and their_badge._glow == 1.0 and not my_badge._is_turn and my_badge._glow == 0.0, "%s %s" % [their_badge._glow, my_badge._glow])
+	_check("close joker: our cards are no longer framed, and we are next", table._hand_light == 0.0 and my_badge.up_next and _node("StatusLabel").text.ends_with("You're next"), _node("StatusLabel").text)
+	await _shot("close-joker-their-turn")
 	var r: Dictionary = await b.drop()
 	_check("close joker: the round result appears", r.ok and await _until(func() -> bool: return _node("ResultOverlay").visible))
 	await _wait(1.2)
@@ -510,6 +534,8 @@ func _see_the_opponent_open_the_joker(b: GameClient) -> void:
 		var my_badge: PlayerBadge = _node("MyBadge")
 		var their_badge: PlayerBadge = table._badges.values()[0]
 		_check("their close joker: no green dot yet", not my_badge._joker_seen and not their_badge._joker_seen)
+		_check("their turn first: their badge is lit, ours is tagged as next", their_badge._glow == 1.0 and their_badge.turn_tag == "PLAYING" and my_badge._glow == 0.0 and my_badge.up_next, "%s %s" % [their_badge._glow, my_badge._glow])
+		_check("their turn first: our cards are not framed", table._hand_light == 0.0, str(table._hand_light))
 
 		var spades: Array = b.groups[0]
 		b.set_groups([spades.slice(0, 3), spades.slice(3)] + b.groups.slice(1))
@@ -546,6 +572,17 @@ func _node(node_name: String) -> Variant:
 
 func _has(node_name: String) -> bool:
 	return _node(node_name) != null
+
+
+# The words in our own row of the scorecard (the row whose name reads "You").
+func _my_result_texts() -> Array[String]:
+	for row: Node in _node("ResultRows").get_children():
+		var texts: Array[String] = []
+		for label: Label in row.find_children("*", "Label", true, false):
+			texts.append(label.text)
+		if texts.has("You"):
+			return texts
+	return []
 
 
 # The screen currently shown by the main scene.

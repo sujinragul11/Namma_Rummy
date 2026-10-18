@@ -5,27 +5,9 @@
 [ext_resource type="Script" path="res://scenes/player_badge.gd" id="3_badge"]
 [ext_resource type="Script" path="res://scenes/sound_switches.gd" id="4_sound"]
 [ext_resource type="Script" path="res://scenes/table_cloth.gd" id="5_cloth"]
+[ext_resource type="Script" path="res://scenes/scorecard.gd" id="6_scorecard"]
 
 [sub_resource type="StyleBoxEmpty" id="none"]
-
-[sub_resource type="StyleBoxFlat" id="result"]
-content_margin_left = 30.0
-content_margin_top = 24.0
-content_margin_right = 30.0
-content_margin_bottom = 24.0
-bg_color = Color(1, 1, 1, 1)
-border_width_left = 4
-border_width_top = 4
-border_width_right = 4
-border_width_bottom = 4
-border_color = Color(1, 0.792157, 0.156863, 1)
-corner_radius_top_left = 20
-corner_radius_top_right = 20
-corner_radius_bottom_right = 20
-corner_radius_bottom_left = 20
-shadow_color = Color(0, 0, 0, 0.4)
-shadow_size = 16
-anti_aliasing = true
 
 [node name="Table" type="Control"]
 anchor_right = 1.0
@@ -262,61 +244,12 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="ResultOverlay" type="ColorRect" parent="."]
+[node name="ResultOverlay" type="Control" parent="."]
 unique_name_in_owner = true
 visible = false
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0, 0, 0, 0.62)
-
-[node name="Center" type="CenterContainer" parent="ResultOverlay"]
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="ResultPanel" type="PanelContainer" parent="ResultOverlay/Center"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(900, 0)
-theme_override_styles/panel = SubResource("result")
-
-[node name="Column" type="VBoxContainer" parent="ResultOverlay/Center/ResultPanel"]
-theme_override_constants/separation = 14
-
-[node name="ResultTitle" type="Label" parent="ResultOverlay/Center/ResultPanel/Column"]
-unique_name_in_owner = true
-theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
-theme_override_font_sizes/font_size = 38
-text = "Result"
-
-[node name="ResultScroll" type="ScrollContainer" parent="ResultOverlay/Center/ResultPanel/Column"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 200)
-horizontal_scroll_mode = 0
-
-[node name="ResultRows" type="VBoxContainer" parent="ResultOverlay/Center/ResultPanel/Column/ResultScroll"]
-unique_name_in_owner = true
-size_flags_horizontal = 3
-theme_override_constants/separation = 12
-
-[node name="Footer" type="HBoxContainer" parent="ResultOverlay/Center/ResultPanel/Column"]
-theme_override_constants/separation = 12
-
-[node name="NextRoundLabel" type="Label" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
-unique_name_in_owner = true
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.2, 0.2, 0.2, 1)
-
-[node name="LeaveGameButton" type="Button" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
-unique_name_in_owner = true
-text = "Leave game"
-
-[node name="PlayAgainButton" type="Button" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
-unique_name_in_owner = true
-text = "Play again"
-
-[node name="BackButton" type="Button" parent="ResultOverlay/Center/ResultPanel/Column/Footer"]
-unique_name_in_owner = true
-text = "Back to home"
+mouse_filter = 2
+script = ExtResource("6_scorecard")

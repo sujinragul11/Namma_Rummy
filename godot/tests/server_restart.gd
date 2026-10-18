@@ -54,9 +54,9 @@ func _run() -> void:
 
 	# An account needs an email and a mobile number of its own (10 digits, starting 6 to 9)
 	var number := randi() % 100000000
-	var r: Dictionary = await a.register("ra_" + tag, "ra_%s@test.local" % tag, "98%08d" % number, "secret12")
+	var r: Dictionary = await a.register("ra_" + tag, "98%08d" % number, "secret12")
 	_check("player A registers", r.ok, str(r.get("error", "")))
-	r = await b.register("rb_" + tag, "rb_%s@test.local" % tag, "88%08d" % number, "secret12")
+	r = await b.register("rb_" + tag, "88%08d" % number, "secret12")
 	_check("player B registers", r.ok, str(r.get("error", "")))
 	_check("two players are connected", await _until(online))
 

@@ -32,12 +32,12 @@ func _run() -> void:
 	Game.logout()
 	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var number := randi() % 100000000
-	var r: Dictionary = await Game.register("ad_" + tag, "ad_%s@test.local" % tag, "95%08d" % number, "secret12")
+	var r: Dictionary = await Game.register("ad_" + tag, "95%08d" % number, "secret12")
 	_check("player A registers", r.ok, str(r.get("error", "")))
 	var b := GameClient.new()
 	b.remember_login = false
 	add_child(b)
-	r = await b.register("bd_" + tag, "bd_%s@test.local" % tag, "85%08d" % number, "secret12")
+	r = await b.register("bd_" + tag, "85%08d" % number, "secret12")
 	_check("player B registers", r.ok, str(r.get("error", "")))
 	_check("both are online", await _until(func() -> bool: return Game.is_online() and b.is_online()))
 	_check("signing up showed no ad", Ads.shown.is_empty(), str(Ads.shown))

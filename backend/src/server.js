@@ -4,7 +4,6 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
-const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 
 const db = require('./database/db');
@@ -12,13 +11,18 @@ const pages = require('./pages');
 const User = require('./models/User');
 const Game = require('./models/Game');
 const Avatar = require('./models/Avatar');
+const DailyBonus = require('./models/DailyBonus');
+const Session = require('./models/Session');
 const SocketManager = require('./socket/SocketManager');
-const { cleanEmail, cleanPhone, MESSAGES } = require('./validation');
+const PhoneVerification = require('./sms/PhoneVerification');
+const {
+  cleanPhone, displayPhone, looksMadeUp, cleanCode, MESSAGES, MAX_USERNAME_LENGTH, MIN_PASSWORD_LENGTH,
+} = require('./validation');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
-  // Same permissive policy as the HTTP API below; sockets are authenticated by JWT
+  // Same permissive policy as the HTTP API below; sockets are authenticated by the login token
   cors: {
     origin: (origin, cb) => cb(null, true),
     methods: ["GET", "POST"]
@@ -62,18 +66,26 @@ const passwordLimiter = rateLimit({
 });
 
 
-// Auth middleware
-const authenticateToken = (req, res, next) => {
+// Auth middleware: the token the app was given at login (see models/Session.js).
+// A login that has ended is answered 401 with code "session_ended", and only that makes the
+// app log out. Any other failure says nothing about the login, so the app keeps it.
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) return res.status(401).json({ error: 'Access token required' });
 
-  jwt.verify(token, config.jwtSecret, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid token' });
-    req.user = user;
-    next();
-  });
+  let login;
+  try {
+    login = await Session.verify(token);
+  } catch (error) {
+    if (error.sessionEnded) return res.status(401).json({ error: error.message, code: 'session_ended' });
+    console.error('Login check error:', error.message);
+    return res.status(503).json({ error: 'The game server is busy. Please try again in a moment.' });
+  }
+  req.user = { id: login.userId };
+  req.sessionId = login.sessionId; // null for a token from before logins were kept
+  next();
 };
 
 // Text typed on a phone keyboard often arrives with stray spaces, or not at all
@@ -86,46 +98,144 @@ const findAccount = async (identifier) => {
   return (phone && (await User.findByIdentifier(phone))) || User.findByIdentifier(identifier);
 };
 
-// Auth routes
+// Sending SMS codes costs money and can be used to pester a stranger's phone: a few per address.
+// Each number also waits between two codes (src/sms/PhoneVerification.js).
+const codeLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many codes were asked for. Please wait a few minutes and try again.' },
+});
+
+const passwordProblem = (password) =>
+  typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH ? MESSAGES.password : '';
+
+// Checks a sign-up form. Returns { error } for the first thing wrong with it, or the account
+// to make: { username, phone, password }. Nothing is sent by SMS before all of it is right.
+const checkSignUp = async (body) => {
+  const username = cleanText(body.username);
+  const phone = cleanPhone(body.phone);
+  if (!username || username.length > MAX_USERNAME_LENGTH) return { error: MESSAGES.username };
+  if (!phone) return { error: MESSAGES.phone };
+  if (looksMadeUp(phone)) return { error: MESSAGES.madeUpPhone };
+  const passwordError = passwordProblem(body.password);
+  if (passwordError) return { error: passwordError };
+  if (await User.findByUsername(username)) return { error: 'That username is taken. Choose another one.' };
+  if (await User.findByPhone(phone)) {
+    return { error: 'An account with this mobile number already exists. Log in, or use "Forgot password?".' };
+  }
+  return { username, phone, password: body.password };
+};
+
+// What the app shows once a code is on its way.
+const codeSentReply = (phone, sent) => ({ codeSent: true, phone: displayPhone(phone), resendSeconds: sent.resendSeconds });
+
+// The login a register or password reset ends with, as /api/auth/login answers it.
+const loginReply = async (user) => {
+  const token = await Session.create(user.id); // lasts until the player logs out
+  delete user.password_hash;
+  delete user.wallet; // a column left from an earlier idea; nothing uses it
+  user.avatar = await Avatar.versionOf(user.id);
+  return { user, token };
+};
+
+// Auth routes. Signing up takes two steps while SMS codes are on: the form is checked and a
+// code is sent (/register/start), then the account is made with that code (/register).
+// With codes off, /register/start answers { codeSent: false } and /register needs no code.
+app.post('/api/auth/register/start', codeLimiter, async (req, res) => {
+  try {
+    const account = await checkSignUp(req.body);
+    if (account.error) return res.status(400).json({ error: account.error });
+    if (!PhoneVerification.enabled()) return res.json({ codeSent: false });
+
+    const sent = await PhoneVerification.send(account.phone);
+    if (!sent.ok) return res.status(sent.status).json({ error: sent.error, waitSeconds: sent.waitSeconds });
+    res.json(codeSentReply(account.phone, sent));
+  } catch (error) {
+    console.error('Registration start error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.post('/api/auth/register', passwordLimiter, async (req, res) => {
   try {
-    const { password } = req.body;
-    const username = cleanText(req.body.username);
-    // A new account needs both an email address and a mobile number; '' means not a valid one
-    const email = cleanEmail(req.body.email);
-    const phone = cleanPhone(req.body.phone);
+    const account = await checkSignUp(req.body);
+    if (account.error) return res.status(400).json({ error: account.error });
 
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
-    if (!email) {
-      return res.status(400).json({ error: MESSAGES.email });
-    }
-    if (!phone) {
-      return res.status(400).json({ error: MESSAGES.phone });
+    if (PhoneVerification.enabled()) {
+      // An app from before codes sends no code at all; it cannot show the step that asks for it
+      if (req.body.code === undefined) {
+        return res.status(400).json({ error: 'Please update Namma Rummy to the newest version to create an account.' });
+      }
+      const code = cleanCode(req.body.code);
+      if (!code) return res.status(400).json({ error: MESSAGES.code });
+      const checked = await PhoneVerification.check(account.phone, code);
+      if (!checked.ok) return res.status(checked.status).json({ error: checked.error });
     }
 
-    // make sure username/email/phone are unique
-    if (await User.findByUsername(username)) {
-      return res.status(400).json({ error: 'Username already in use' });
-    }
-    if (await User.findByEmail(email)) {
-      return res.status(400).json({ error: 'Email already in use' });
-    }
-    if (await User.findByPhone(phone)) {
-      return res.status(400).json({ error: 'Phone already in use' });
-    }
-
-    const user = await User.create({ username, email, phone, password });
-    const token = jwt.sign(
-      { id: user.id, email: user.email, phone: user.phone },
-      config.jwtSecret,
-      { expiresIn: '24h' }
-    );
-
+    const user = await User.create(account);
+    const token = await Session.create(user.id); // lasts until the player logs out
     res.status(201).json({ user: { ...user, avatar: 0 }, token });
   } catch (error) {
+    // 23505: the same name or number was registered a moment ago
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'That username or mobile number was registered a moment ago. Try another one.' });
+    }
     console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// A forgotten password: a code goes to the account's mobile number (/password/start), and with
+// it the password is replaced (/password/reset). Every other login of the account then ends,
+// and the player is logged in here.
+app.post('/api/auth/password/start', codeLimiter, async (req, res) => {
+  try {
+    const phone = cleanPhone(req.body.phone);
+    if (!phone) return res.status(400).json({ error: MESSAGES.phone });
+    if (!PhoneVerification.enabled()) {
+      const contact = config.supportEmail || 'the support address in the app store listing';
+      return res.status(503).json({ error: `Resetting a password by SMS is not available yet. For help, write to ${contact} with your username and mobile number.` });
+    }
+    if (!(await User.findByPhone(phone))) {
+      return res.status(404).json({ error: 'No account has this mobile number. Check it, or register a new account.' });
+    }
+    const sent = await PhoneVerification.send(phone);
+    if (!sent.ok) return res.status(sent.status).json({ error: sent.error, waitSeconds: sent.waitSeconds });
+    res.json(codeSentReply(phone, sent));
+  } catch (error) {
+    console.error('Password reset start error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/password/reset', passwordLimiter, async (req, res) => {
+  try {
+    const phone = cleanPhone(req.body.phone);
+    const code = cleanCode(req.body.code);
+    if (!phone) return res.status(400).json({ error: MESSAGES.phone });
+    if (!code) return res.status(400).json({ error: MESSAGES.code });
+    const passwordError = passwordProblem(req.body.password);
+    if (passwordError) return res.status(400).json({ error: passwordError });
+    if (!PhoneVerification.enabled()) {
+      return res.status(503).json({ error: 'Resetting a password by SMS is not available yet.' });
+    }
+    const user = await User.findByPhone(phone);
+    if (!user) return res.status(404).json({ error: 'No account has this mobile number.' });
+
+    const checked = await PhoneVerification.check(phone, code);
+    if (!checked.ok) return res.status(checked.status).json({ error: checked.error });
+
+    await User.setPassword(user.id, req.body.password);
+    // Whoever knew the old password is logged out everywhere, at once
+    await Session.revokeAll(user.id, 'password_reset');
+    const sockets = await io.in(socketManager.userRoom(String(user.id))).fetchSockets();
+    closeEndedLogins(sockets, () => false);
+    console.log(`🔑 Password of account ${user.id} reset by SMS code`);
+    res.json(await loginReply(user));
+  } catch (error) {
+    console.error('Password reset error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -149,16 +259,7 @@ app.post('/api/auth/login', passwordLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, phone: user.phone },
-      config.jwtSecret,
-      { expiresIn: '24h' }
-    );
-
-    delete user.password_hash;
-    delete user.wallet; // a column left from an earlier idea; nothing uses it
-    user.avatar = await Avatar.versionOf(user.id); // the profile photo's version, 0 for none
-    res.json({ user, token });
+    res.json(await loginReply(user)); // with the profile photo's version, 0 for none
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -236,31 +337,31 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
   }
 });
 
-// Update username / email
+// Update the username. The mobile number stays: it was proven by SMS when the account was made.
+// (An email address sent by an older app is ignored; accounts no longer have one.)
 app.patch('/api/user/profile', authenticateToken, async (req, res) => {
   try {
     const username = cleanText(req.body.username);
-    const email = cleanEmail(req.body.email);
 
     if (!username || username.length > 50) {
       return res.status(400).json({ error: 'Username must be 1 to 50 characters' });
-    }
-    // Every account has an email address; it can be changed but not removed
-    if (!email) {
-      return res.status(400).json({ error: MESSAGES.email });
     }
 
     const current = await User.findById(req.user.id);
     if (!current) {
       return res.status(404).json({ error: 'User not found' });
     }
+    const taken = await User.findByUsername(username);
+    if (taken && taken.id !== current.id) {
+      return res.status(400).json({ error: 'That username is taken. Choose another one.' });
+    }
 
-    const user = await User.updateProfile(req.user.id, { username, email });
+    const user = await User.updateProfile(req.user.id, { username });
     res.json({ user });
   } catch (error) {
-    // 23505 = unique violation on username or email
+    // 23505 = unique violation on the username
     if (error.code === '23505') {
-      return res.status(400).json({ error: 'Username or email already in use' });
+      return res.status(400).json({ error: 'That username is taken. Choose another one.' });
     }
     console.error('Update profile error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -269,6 +370,44 @@ app.patch('/api/user/profile', authenticateToken, async (req, res) => {
 
 // Initialize Socket.IO
 const socketManager = new SocketManager(io);
+
+// Closes the game connections opened with logins that have ended. The app then tries to
+// connect again, is told its login has ended, and shows the login screen.
+const closeEndedLogins = (sockets, isActive) => {
+  for (const socket of sockets) {
+    if (socket.data.sessionId && !isActive(socket.data.sessionId)) socket.disconnect(true);
+  }
+};
+
+// Logging out ends the login on the server too, so its token cannot be used again
+app.post('/api/auth/logout', authenticateToken, async (req, res) => {
+  try {
+    if (req.sessionId) {
+      await Session.end(req.sessionId);
+      const sockets = await io.in(socketManager.userRoom(String(req.user.id))).fetchSockets();
+      closeEndedLogins(sockets, (sessionId) => sessionId !== req.sessionId);
+    }
+    res.json({ loggedOut: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// A login can also be ended from outside this server (src/database/revoke-logins.js).
+// Every so often the connections still open are checked, so it reaches them within a minute.
+const LOGIN_CHECK_MS = (Number(process.env.LOGIN_CHECK_SECONDS) || 60) * 1000;
+setInterval(async () => {
+  try {
+    const sockets = await io.fetchSockets();
+    const sessionIds = [...new Set(sockets.map((socket) => socket.data.sessionId).filter(Boolean))];
+    if (sessionIds.length === 0) return;
+    const active = await Session.activeAmong(sessionIds);
+    closeEndedLogins(sockets, (sessionId) => active.has(sessionId));
+  } catch (error) {
+    console.warn('⚠️  Failed to check open logins:', error.message);
+  }
+}, LOGIN_CHECK_MS).unref();
 
 // Account deletion. Both app stores require it wherever an account can be created:
 // inside the app (the route below) and on a web page (further down).
@@ -353,6 +492,37 @@ app.get('/api/avatars/:userId', authenticateToken, async (req, res) => {
   }
 });
 
+// The daily bonus wheel: one spin every 24 hours. The server keeps when each player last spun
+// and draws the slot the wheel stops on; the app only shows it. See models/DailyBonus.js.
+app.get('/api/bonus/daily', authenticateToken, async (req, res) => {
+  try {
+    res.json(await DailyBonus.status(req.user.id));
+  } catch (error) {
+    console.error('Daily bonus status error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/bonus/daily/spin', authenticateToken, async (req, res) => {
+  const userId = String(req.user.id);
+  try {
+    const result = await DailyBonus.spin(req.user.id);
+    // The new balance, and the wheel closing for a day, reach every phone the player is on
+    socketManager.sendCoins(userId, result.coins);
+    socketManager.bonusChanged(userId, { available: false, nextSpinIn: result.nextSpinIn });
+    console.log(`🎡 Daily bonus: user ${userId} won ${result.prize} coins`);
+    res.json(result);
+  } catch (error) {
+    if (error.tooEarly) {
+      res.set('Retry-After', String(Math.ceil(error.nextSpinIn / 1000)));
+      return res.status(429).json({ error: error.message, available: false, nextSpinIn: error.nextSpinIn });
+    }
+    if (error.notFound) return res.status(404).json({ error: 'User not found' });
+    console.error('Daily bonus spin error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Web pages: what the store listings link to
 app.get('/', (req, res) => res.send(pages.home()));
 app.get('/privacy', (req, res) => res.send(pages.privacy()));
@@ -397,6 +567,7 @@ server.on('error', (error) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT} (0.0.0.0)`);
   console.log(`📡 Socket.IO ready`);
+  console.log(PhoneVerification.describe());
   if (!config.isProduction) printPhoneAddresses();
 });
 

@@ -46,8 +46,9 @@ func _run() -> void:
 	var invites_to_b: Array = []
 	b.invite_received.connect(func(invite: Dictionary) -> void: invites_to_b.append(invite))
 
-	Game.register(name_a, name_a + "@test.local", _phone(), PASSWORD)
+	Game.register(name_a, _phone(), PASSWORD)
 	_check("registered and connected", await _until(func() -> bool: return Game.is_logged_in() and Game.is_online()))
+	await _until(func() -> bool: return not _main.loading(), 15.0)  # the logo stays until the server answers
 	await _wait(0.6)
 	_check("the menu has a Friends button", _shown("FriendsButton") and _node("FriendsButton").text == "Friends", _text("FriendsButton"))
 	_check("the bottom bar holds Friends only (the profile opens from the picture at the top)", _on_screen("FriendsButton") and not _has("ProfileButton") and _on_screen("AvatarPill") and not _shown("PrivacyButton") and not _shown("TermsButton") and not _shown("LogoutButton"))
@@ -287,30 +288,46 @@ func _run() -> void:
 	await _wait(0.8)  # the last result is written to the database
 	_tap(_middle(_node("AvatarPill")))  # the only way to the profile
 	_check("the profile opens", await _until(func() -> bool: return _has("StatsRow")))
-	_check("it counts the games played and won", await _until(func() -> bool: return _text("PlayedValue") == "4") and _text("WonValue") == "4" and _text("RateValue") == "100%", "%s played, %s won, %s" % [_text("PlayedValue"), _text("WonValue"), _text("RateValue")])
+	_check("it counts the games played and won", await _until(func() -> bool: return _text("PlayedValue") == "4") and _text("WonValue") == "4" and _text("RateValue") == "100 %", "%s played, %s won, %s" % [_text("PlayedValue"), _text("WonValue"), _text("RateValue")])
+	_check("it counts the friends", _text("FriendsValue") == str(Game.friends.size()) and Game.friends.size() > 0, _text("FriendsValue"))
 	_check("it shows the coins", _text("CoinsValue") == Ui.coins_text(Game.coins), _text("CoinsValue"))
-	_check("the fields hold the name and the email", _node("ProfileNameEdit").text == name_a and _node("ProfileEmailEdit").text == (name_a + "@test.local").to_lower(), _node("ProfileEmailEdit").text)
-	_check("there is nothing to save yet", _node("SaveProfileButton").disabled)
+	_check("the name pill holds the name, and there is no email field", _node("ProfileNameEdit").text == name_a and not _has("ProfileEmailEdit"), _node("ProfileNameEdit").text)
+	_check("the mobile number is shown with its country code", _text("AccountLabel").begins_with("Mobile +91 ") and _text("AccountLabel").contains(str(Game.profile.get("phone", "")).substr(5)), _text("AccountLabel"))
+	_check("there is nothing to save yet: the pencil, not the tick", _shown("EditNameButton") and not _shown("SaveProfileButton"))
 	_check("Delete account lives in the profile", _shown("DeleteAccountButton"))
-	_check("the whole profile fits the screen", _on_screen("ProfileNameEdit") and _on_screen("ProfileEmailEdit") and _on_screen("SaveProfileButton") and _on_screen("StatsRow") and _on_screen("CoinsValue"), str(get_viewport().get_visible_rect().size))
-	# A phone's keyboard covers about the lower half; the fields must stay above it
-	_check("the fields sit in the upper half of the screen", (_node("ProfileEmailEdit") as Control).get_global_rect().end.y < 320.0, str((_node("ProfileEmailEdit") as Control).get_global_rect()))
-	_check("the four numbers share the row evenly", absf((_node("PlayedValue") as Control).size.x - (_node("CoinsValue") as Control).size.x) < 2.0 and (_node("CoinsValue") as Control).size.x > 120.0, str((_node("CoinsValue") as Control).size))
+	_check("the whole profile fits the screen", _on_screen("ProfileAvatar") and _on_screen("ProfileNameEdit") and _on_screen("ChangePhotoButton") and _on_screen("StatsRow") and _on_screen("DeleteAccountButton") and _on_screen("CloseButton"), str(get_viewport().get_visible_rect().size))
 	await _wait(0.5)
 	await _shot("profile")
 
-	_type("ProfileEmailEdit", "not an address")
+	# A phone's keyboard covers about the lower half: the box rises so the name stays above it
+	var profile: Variant = get_tree().get_first_node_in_group(FriendsPanel.BACK_GROUP)
+	profile.make_room_for_keyboard(int(DisplayServer.window_get_size().y * 0.52))
+	await _wait(0.2)
+	var keyboard_top: float = get_viewport().get_visible_rect().size.y * 0.48
+	_check("with the keyboard up, the name is still above it", (_node("ProfileNameEdit") as Control).get_global_rect().end.y <= keyboard_top + 1.0, "%s, keyboard from %s" % [(_node("ProfileNameEdit") as Control).get_global_rect(), keyboard_top])
+	profile.make_room_for_keyboard(0)
+	await _wait(0.2)
+
+	await _press("EditNameButton")
+	_check("the pencil puts the cursor in the name", (_node("ProfileNameEdit") as Control).has_focus())
+	await _press("ChangePhotoButton")
+	_check("Change Photo opens the photo box with the photo editor", await _until(func() -> bool: return _has("PhotoBox") and (_node("PhotoBox").find_child("AvatarEditor", true, false) as Control).is_visible_in_tree()))
+	await _wait(0.4)
+	await _shot("profile-photo-box")
+	await _press("PhotoCloseButton")
+	_check("its tag closes it, back to the profile", await _until(func() -> bool: return not _has("PhotoBox") and _shown("StatsRow")))
+
+	_type("ProfileNameEdit", name_b.to_lower())
 	await _press("SaveProfileButton")
-	_check("a bad email address is refused with a message", await _until(func() -> bool: return message_box.visible) and message_box.dialog_text.contains("valid email"), message_box.dialog_text)
+	_check("another player's name is refused with a message", await _until(func() -> bool: return message_box.visible) and message_box.dialog_text.contains("taken"), message_box.dialog_text)
 	await _press_in_box(message_box, "the refusal's OK")
 	_check("the account is unchanged", Game.user.get("username") == name_a)
 
 	var new_name := "Anu" + tag + "x"
 	_type("ProfileNameEdit", new_name)
-	_type("ProfileEmailEdit", "new." + tag + "@test.local")
 	await _press("SaveProfileButton")
-	_check("the new name and email are saved", await _until(func() -> bool: return Game.user.get("username") == new_name and Game.user.get("email") == "new." + tag + "@test.local"), str(Game.user))
-	_check("Save has nothing left to do", await _until(func() -> bool: return _node("SaveProfileButton").disabled))
+	_check("the new name is saved", await _until(func() -> bool: return Game.user.get("username") == new_name), str(Game.user))
+	_check("Save has nothing left to do: the pencil is back", await _until(func() -> bool: return not _shown("SaveProfileButton") and _shown("EditNameButton")))
 	_check("the player is connected again under the new name", await _until(func() -> bool: return Game.is_online()))
 	_check("friends see the new name", await _until(func() -> bool: return b.friends.size() == 1 and b.friends[0].get("username") == new_name), str(b.friends))
 	await _press("CloseButton")
@@ -336,7 +353,7 @@ func _player(username: String) -> GameClient:
 	var client := GameClient.new()
 	client.remember_login = false
 	add_child(client)
-	await client.register(username, username + "@test.local", _phone(), PASSWORD)
+	await client.register(username, _phone(), PASSWORD)
 	await _until(func() -> bool: return client.is_online())
 	return client
 

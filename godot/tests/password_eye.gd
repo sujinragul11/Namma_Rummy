@@ -23,6 +23,7 @@ func _ready() -> void:
 			_shots = argument.trim_prefix("--shots=")
 	Game.logout()
 	_main = (load("res://scenes/main.tscn") as PackedScene).instantiate() as Control
+	_main.set("wait_for_server", false)  # no server here: the login form at once
 	add_child(_main)
 	_run()
 

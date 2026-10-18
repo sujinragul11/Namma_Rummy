@@ -31,6 +31,10 @@ if (!config.legalOwner) {
 if (!config.supportEmail) {
   problems.push('SUPPORT_EMAIL must be an address players can write to');
 }
+// The tests' fixed sign-up code would let anyone register any phone number
+if (isProduction && process.env.SMS_TEST_CODE) {
+  problems.push('SMS_TEST_CODE is for the tests only: remove it (set the TWILIO_* values to send real codes)');
+}
 
 if (isProduction && problems.length > 0) {
   console.error('❌ The server is not ready for production. Set these in the environment (see .env.example):');

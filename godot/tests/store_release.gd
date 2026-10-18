@@ -28,6 +28,7 @@ func _run() -> void:
 	var password_edit: LineEdit = password_box.find_child("PasswordBoxEdit", true, false)
 
 	await _wait(0.3)
+	await _until(func() -> bool: return not _main.loading(), 15.0)  # the logo stays until the server answers
 	print("store release test, %s build" % ("store" if Config.store_build else "developer"))
 
 	# ---------- the login form ----------
@@ -37,8 +38,9 @@ func _run() -> void:
 	_check("nothing to delete while logged out", not _shown("DeleteAccountButton"))
 
 	# ---------- an account ----------
-	Game.register(username, username + "@test.local", "9%09d" % (randi() % 1000000000), PASSWORD)
+	Game.register(username, "9%09d" % (randi() % 1000000000), PASSWORD)
 	_check("registered and connected", await _until(func() -> bool: return Game.is_logged_in() and Game.is_online()))
+	await _until(func() -> bool: return not _main.loading(), 15.0)
 	await _wait(0.3)
 	_check("the menu has the player's picture (the way to the profile) and Settings", _shown("MenuPanel") and _shown("AvatarPill") and _shown("AccountButton") and _node("ProfileButton") == null)
 	_press("AccountButton")

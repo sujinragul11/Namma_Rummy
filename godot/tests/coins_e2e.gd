@@ -26,10 +26,10 @@ func _run() -> void:
 	for client: GameClient in [a, b, c]:
 		client.action_failed.connect(func(message: String) -> void: errors.append(message))
 
-	var r: Dictionary = await a.register("ca_" + tag, "ca_%s@test.local" % tag, "97%08d" % number, "secret12")
+	var r: Dictionary = await a.register("ca_" + tag, "97%08d" % number, "secret12")
 	_check("A registers", r.ok, str(r.get("error", "")))
-	r = await b.register("cb_" + tag, "cb_%s@test.local" % tag, "87%08d" % number, "secret12")
-	r = await c.register("cc_" + tag, "cc_%s@test.local" % tag, "77%08d" % number, "secret12")
+	r = await b.register("cb_" + tag, "87%08d" % number, "secret12")
+	r = await c.register("cc_" + tag, "77%08d" % number, "secret12")
 	_check("all three are connected", await _until(func() -> bool: return a.is_online() and b.is_online() and c.is_online()))
 	_check("a new account has 50,000 coins", await _has(a, START) and await _has(b, START) and await _has(c, START), "%d %d %d" % [a.coins, b.coins, c.coins])
 

@@ -8,6 +8,10 @@ extends Node
 
 signal auth_changed
 signal auth_failed(message: String)
+## The server has sent a 6-digit code by SMS: to sign up (`purpose` "register") or to set a new
+## password ("password"). `phone` is the number as the server shows it; another code can be
+## asked for after `resend_seconds`.
+signal code_sent(purpose: String, phone: String, resend_seconds: int)
 signal connection_changed
 signal state_changed
 signal busy_changed
@@ -23,6 +27,22 @@ signal invite_received(invite: Dictionary)
 signal match_changed
 ## A player's profile photo has arrived (or changed); avatar_texture() now has it.
 signal avatar_loaded(user_id: String)
+## The daily bonus wheel opened, closed, or got a new countdown (see `bonus`).
+signal bonus_changed
+## Our spin of the wheel was accepted: it stops on slot `index`, which pays `prize` coins.
+signal bonus_spun(index: int, prize: int)
+## Our spin was refused (the 24 hours are not over) or did not reach the server.
+signal bonus_failed(message: String)
+## A player at our table (ourselves included) wrote something or sent an emoji; it is also the
+## last entry of chat_log now.
+signal chat_received(message: Dictionary)
+## chat_log was replaced as a whole: a new table, or caught up after the connection came back.
+signal chat_changed
+## The players we blocked in the chat changed (see chat_blocked).
+signal chat_blocks_changed
+## A player at our table (ourselves included) threw one of THROWABLES at another player's
+## picture: {"id", "from", "to", "item"}, the two being user ids.
+signal item_thrown(toss: Dictionary)
 
 const HTTP_TIMEOUT := 10.0
 ## What the server answers to a move when it no longer has the table we are sitting at.
@@ -37,6 +57,25 @@ const MAX_POINTS := 80
 ## Profile photos already fetched, kept between runs: "<user id>-<version>.jpg".
 const AVATAR_CACHE := "user://avatars"
 const AVATAR_FETCHES_AT_ONCE := 4
+## When the wheel's countdown has run out but the server could not be asked, ask again after this.
+const BONUS_RETRY_MSEC := 5000
+## The emoji a player can send at the table, by the names the server knows them by. Each has
+## its picture in res://assets/emoji/<name>.png.
+const EMOJIS := ["laugh", "cool", "thumbs", "heart", "fire", "clap", "wow", "cry", "angry", "think", "pray", "party"]
+## What can be thrown at another player's picture at the table, by the names the server knows
+## them by (TableThrows has a picture and an animation for each). The server has the same list.
+const THROWABLES := [
+	"aruval", "knife", "ghost", "cake", "chocolate",
+	"tomato", "egg", "bomb", "chappal", "coconut",
+	"hammer", "boxing", "firecracker", "chili", "ice",
+	"balloon", "rose", "crown", "chai", "money",
+]
+## The server cuts a message at this many characters and keeps this many per table.
+const CHAT_MAX_LENGTH := 120
+const CHAT_LOG_SIZE := 40
+## What the server adds to a 401 answer when our login has ended; only that logs us out.
+const LOGIN_ENDED_CODE := "session_ended"
+const LOGIN_ENDED_MESSAGE := "Your login has ended. Please log in again."
 
 ## Tests set this to false so their throwaway logins are not saved.
 var remember_login := true
@@ -81,6 +120,19 @@ var match_status: Dictionary = {}
 ## (Time.get_ticks_msec() values; match_starts_at is 0 while there is no such table yet).
 var match_since := 0
 var match_starts_at := 0
+## The daily bonus wheel as the server last described it: {"available", "nextSpinIn" (msec),
+## "cooldown" (msec between spins), "prizes" (the coins on each slot, clockwise from the
+## pointer), "lastPrize"}. Empty until fetched. One spin every 24 hours: the server keeps the
+## time of the last one and draws the prize, so the app can only show what it is told.
+var bonus: Dictionary = {}
+## When the wheel opens again, as a Time.get_ticks_msec() value; 0 while it is open or unknown.
+var bonus_ready_at := 0
+## What has been said at our table, oldest first; empty when not at a table. Each entry:
+## {"id", "userId", "username", "kind": "text" or "emoji", "text" or "emoji", "at"}.
+var chat_log: Array = []
+## The players we blocked in the chat, as {"id", "username"}: nothing they write or send at a
+## table reaches us. The server keeps the list with our account.
+var chat_blocked: Array = []
 var socket: SocketIOClient
 ## True while a request is on its way to the server.
 var busy: bool:
@@ -94,6 +146,9 @@ var _friends_known := false  # false until the server has sent the lists once
 var _avatars: Dictionary = {}
 var _avatar_queue: Array = []  # [user id, version] still to fetch
 var _avatar_fetches := 0  # how many are on their way
+var _bonus_fetching := false
+var _bonus_spinning := false
+var _bonus_retry_at := 0  # no new question about the wheel before this (ticks)
 
 
 func _ready() -> void:
@@ -113,6 +168,20 @@ func _ready() -> void:
 			_set_login(saved.token, saved.user)
 
 
+func _process(_delta: float) -> void:
+	# The wheel's countdown has run out: the server says whether it really is open again
+	var now := Time.get_ticks_msec()
+	if bonus_ready_at > 0 and now >= bonus_ready_at and now >= _bonus_retry_at and not _bonus_fetching and is_logged_in():
+		_bonus_retry_at = now + BONUS_RETRY_MSEC
+		fetch_bonus()
+
+
+func _notification(what: int) -> void:
+	# A phone's tick clock stands still while it sleeps, so the countdown is behind: ask again
+	if what == NOTIFICATION_APPLICATION_RESUMED and is_logged_in():
+		fetch_bonus()
+
+
 # ---------- account ----------
 
 func is_logged_in() -> bool:
@@ -121,6 +190,12 @@ func is_logged_in() -> bool:
 
 func is_online() -> bool:
 	return socket.is_online
+
+
+## Opens the game connection again with the same login, e.g. after the server address changed.
+func reconnect() -> void:
+	if is_logged_in():
+		socket.open(server_url, {"token": token})
 
 
 func set_server_url(url: String) -> void:
@@ -132,13 +207,59 @@ func set_server_url(url: String) -> void:
 		Config.set_server_url(clean)
 
 
-func register(username: String, email: String, phone: String, password: String) -> Dictionary:
-	var body := {"username": username.strip_edges(), "password": password}
-	if not email.strip_edges().is_empty():
-		body["email"] = email.strip_edges()
-	if not phone.strip_edges().is_empty():
-		body["phone"] = phone.strip_edges()
+# ---------- phone codes ----------
+
+## Signing up, first step: the server checks the form and sends a code by SMS to `phone`
+## (code_sent follows; then register() with that code). While the server does not verify
+## numbers it makes the account at once instead. A refusal comes through auth_failed.
+## `phone` is the whole number with its country code, as AccountRules.full_number makes it.
+func start_registration(username: String, phone: String, password: String) -> Dictionary:
+	_begin()
+	var response: Dictionary = await _http(HTTPClient.METHOD_POST, "/api/auth/register/start", _sign_up_body(username, phone, password))
+	_end()
+	if not response.ok:
+		auth_failed.emit(response.error)
+	elif not response.data.get("codeSent", false):
+		return await register(username, phone, password)
+	else:
+		code_sent.emit("register", str(response.data.get("phone", phone)), int(response.data.get("resendSeconds", 30)))
+	return response
+
+
+## Signing up, second step: makes the account with the code from the SMS. Without a code where
+## the server does not verify numbers (the tests' default server).
+func register(username: String, phone: String, password: String, code: String = "") -> Dictionary:
+	var body := _sign_up_body(username, phone, password)
+	if not code.is_empty():
+		body["code"] = code.replace(" ", "")
 	return await _authenticate("/api/auth/register", body)
+
+
+## A forgotten password, first step: a code goes by SMS to the account's number (code_sent),
+## or auth_failed says why it cannot.
+func start_password_reset(phone: String) -> Dictionary:
+	_begin()
+	var response: Dictionary = await _http(HTTPClient.METHOD_POST, "/api/auth/password/start", {"phone": phone.strip_edges()})
+	_end()
+	if response.ok:
+		code_sent.emit("password", str(response.data.get("phone", phone)), int(response.data.get("resendSeconds", 30)))
+	else:
+		auth_failed.emit(response.error)
+	return response
+
+
+## A forgotten password, second step: the code from the SMS and the new password. The player
+## is logged in with it, and every other login of the account has ended.
+func reset_password(phone: String, code: String, password: String) -> Dictionary:
+	var body := {"phone": phone.strip_edges(), "code": code.replace(" ", ""), "password": password}
+	var response: Dictionary = await _authenticate("/api/auth/password/reset", body)
+	if response.ok:
+		notice.emit("info", "Your password has been changed")
+	return response
+
+
+func _sign_up_body(username: String, phone: String, password: String) -> Dictionary:
+	return {"username": username.strip_edges(), "phone": phone.strip_edges(), "password": password}
 
 
 ## `identifier` is an email, phone number or username.
@@ -147,7 +268,17 @@ func login(identifier: String, password: String) -> Dictionary:
 	return await _authenticate("/api/auth/login", body)
 
 
+## Logs out. The login ends on the server too, so its token is not accepted anywhere any more.
+## A login does not run out: only this, or the server ending it, logs the player out.
 func logout() -> void:
+	if not token.is_empty():
+		# Not waited for: the token is forgotten here at once, whether the server is reached or not
+		_http(HTTPClient.METHOD_POST, "/api/auth/logout")
+	_forget_login()
+
+
+# Forgets the login and everything that came with it, on this device only.
+func _forget_login() -> void:
 	_stop_search()
 	socket.close()
 	token = ""
@@ -156,6 +287,7 @@ func logout() -> void:
 	coins = 0
 	_forget_game()
 	_forget_friends()
+	_forget_bonus()
 	if remember_login:
 		Config.clear_login()
 	auth_changed.emit()
@@ -169,7 +301,7 @@ func delete_account(password: String) -> Dictionary:
 	var response: Dictionary = await _http(HTTPClient.METHOD_POST, "/api/user/delete", {"password": password})
 	_end()
 	if response.ok:
-		logout()
+		_forget_login()  # the account's logins went with it
 		notice.emit("info", "Your account has been deleted")
 	else:
 		action_failed.emit(response.error)
@@ -462,10 +594,10 @@ func fetch_profile() -> Dictionary:
 	return response
 
 
-## Changes the username and the email address.
-func update_profile(username: String, email: String) -> Dictionary:
+## Changes the username. (The mobile number stays: the SMS code proved it when signing up.)
+func update_profile(username: String) -> Dictionary:
 	_begin()
-	var body := {"username": username.strip_edges(), "email": email.strip_edges()}
+	var body := {"username": username.strip_edges()}
 	var response: Dictionary = await _http(HTTPClient.METHOD_PATCH, "/api/user/profile", body)
 	_end()
 	if not response.ok:
@@ -473,9 +605,8 @@ func update_profile(username: String, email: String) -> Dictionary:
 		return response
 
 	var saved: Dictionary = response.data.get("user", {})
-	for key: String in ["username", "email"]:
-		user[key] = saved.get(key, user.get(key))
-		profile[key] = user[key]
+	user["username"] = saved.get("username", user.get("username"))
+	profile["username"] = user["username"]
 	if remember_login:
 		Config.save_login(token, user)
 	# The server reads the name once, when the socket connects; connecting again makes tables,
@@ -608,6 +739,88 @@ func _store_avatar(user_id: String, version: int, bytes: PackedByteArray) -> boo
 	return true
 
 
+# ---------- the daily bonus wheel ----------
+
+## True when the server last said the wheel may be spun.
+func bonus_available() -> bool:
+	return not bonus.is_empty() and bool(bonus.get("available", false))
+
+
+## The coins on each slot of the wheel, clockwise from the pointer; empty until fetched.
+func bonus_prizes() -> Array:
+	return bonus.get("prizes", [])
+
+
+## Milliseconds until the wheel opens again; 0 while it is open (or not known yet).
+func bonus_wait() -> int:
+	return maxi(0, bonus_ready_at - Time.get_ticks_msec()) if bonus_ready_at > 0 else 0
+
+
+## True while a spin is on its way to the server.
+func bonus_spinning() -> bool:
+	return _bonus_spinning
+
+
+## Asks the server where the wheel stands. The answer comes as bonus_changed.
+func fetch_bonus() -> void:
+	if _bonus_fetching or not is_logged_in():
+		return
+	_bonus_fetching = true
+	var asked_with := token
+	var response: Dictionary = await _http(HTTPClient.METHOD_GET, "/api/bonus/daily")
+	_bonus_fetching = false
+	if response.ok and token == asked_with:  # not for an account logged out meanwhile
+		_apply_bonus(response.data)
+
+
+## Spins the wheel. The server checks the 24 hours and draws the prize; the answer comes as
+## bonus_spun (with the new balance already in `coins`) or bonus_failed.
+func spin_bonus() -> void:
+	if _bonus_spinning or not is_logged_in():
+		return
+	_bonus_spinning = true
+	var asked_with := token
+	var response: Dictionary = await _http(HTTPClient.METHOD_POST, "/api/bonus/daily/spin")
+	_bonus_spinning = false
+	if token != asked_with:
+		return
+	var data: Dictionary = response.data
+	# A refusal says how long is left; a win starts the next 24 hours
+	if data.has("available"):
+		_apply_bonus(data)
+	if response.ok:
+		coins = int(data.get("coins", coins))
+		coins_changed.emit()
+		bonus_spun.emit(int(data.get("index", 0)), int(data.get("prize", 0)))
+	else:
+		bonus_failed.emit(response.error)
+
+
+## "23:59:59" for a wait in milliseconds, rounded up to the second.
+static func countdown_text(msec: int) -> String:
+	var left := ceili(maxi(0, msec) / 1000.0)
+	return "%02d:%02d:%02d" % [floori(left / 3600.0), floori(left / 60.0) % 60, left % 60]
+
+
+# What the server says about the wheel, from an answer or from the "dailyBonus" event; only
+# the parts it sends change.
+func _apply_bonus(data: Dictionary) -> void:
+	for key: String in ["available", "nextSpinIn", "cooldown", "prizes", "lastPrize"]:
+		if data.has(key):
+			bonus[key] = data[key]
+	var wait := int(bonus.get("nextSpinIn", 0))
+	bonus_ready_at = 0 if bonus_available() or wait <= 0 else Time.get_ticks_msec() + wait
+	_bonus_retry_at = 0
+	bonus_changed.emit()
+
+
+func _forget_bonus() -> void:
+	bonus = {}
+	bonus_ready_at = 0
+	_bonus_retry_at = 0
+	bonus_changed.emit()
+
+
 # ---------- friends ----------
 
 ## Asks a player to be our friend. If they had already asked us, this accepts.
@@ -667,6 +880,114 @@ func friends_online() -> int:
 	return count
 
 
+# ---------- chat at the table ----------
+
+## Says something to the players at our table. What comes back arrives through chat_received,
+## for us as for everyone else; a refusal (too many messages at once) shows as a notice.
+func send_chat(text: String) -> void:
+	var clean := text.strip_edges()
+	if not clean.is_empty():
+		_say({"text": clean.left(CHAT_MAX_LENGTH)})
+
+
+## Sends one of EMOJIS to the players at our table.
+func send_emoji(emoji_name: String) -> void:
+	if emoji_name in EMOJIS:
+		_say({"emoji": emoji_name})
+
+
+# Chat goes out on its own, not through _ask: it never makes the table busy, so it cannot hold
+# up a move, and a refusal is a passing notice rather than a message box over the cards.
+func _say(payload: Dictionary) -> void:
+	var response: Dictionary = await socket.request("sendChat", payload)
+	if not response.get("ok", false):
+		notice.emit("warning", str(response.get("error", "The message was not sent")))
+
+
+# Catches up with what was said at our table: when we sit down, and after the connection was
+# lost for a while.
+func _fetch_chat() -> void:
+	var game_id: Variant = state.get("gameId")
+	var response: Dictionary = await socket.request("chatHistory")
+	if response.get("ok", false) and game_id != null and state.get("gameId") == game_id and response.get("gameId") == game_id:
+		chat_log = response.get("messages", [])
+		chat_changed.emit()
+
+
+func _add_chat(message: Dictionary) -> void:
+	if state.is_empty() or message.get("gameId") != state.get("gameId"):
+		return  # said at a table we have left
+	if is_chat_blocked(str(message.get("userId", ""))):
+		return  # sent just before we blocked them
+	chat_log.append(message)
+	if chat_log.size() > CHAT_LOG_SIZE:
+		chat_log = chat_log.slice(chat_log.size() - CHAT_LOG_SIZE)
+	chat_received.emit(message)
+
+
+## Whether we blocked this player in the chat.
+func is_chat_blocked(user_id: String) -> bool:
+	return chat_blocked.any(func(entry: Dictionary) -> bool: return str(entry.get("id", "")) == user_id)
+
+
+## Blocks a player in the chat, or unblocks them: what they write or send at a table stops
+## reaching us, at every table, until we unblock them. The list follows through
+## chat_blocks_changed; the outcome is told in a notice.
+func block_chat_player(user_id: String, username: String, blocked: bool = true) -> void:
+	var response: Dictionary = await socket.request("blockPlayer", {"userId": user_id, "blocked": blocked})
+	if not response.get("ok", false):
+		notice.emit("warning", str(response.get("error", "That did not work. Please try again.")))
+		return
+	_apply_chat_blocks(response.get("blocked", []))
+	if blocked:
+		notice.emit("info", "You will not see messages from %s any more" % username)
+	else:
+		notice.emit("info", "%s is unblocked" % username)
+
+
+## Reports a message from another player at our table to the game's team. Its sender is
+## blocked for us at the same time.
+func report_chat(message: Dictionary) -> void:
+	var response: Dictionary = await socket.request("reportChat", {"messageId": message.get("id")})
+	if not response.get("ok", false):
+		notice.emit("warning", str(response.get("error", "The report was not sent. Please try again.")))
+		return
+	_apply_chat_blocks(response.get("blocked", []))
+	notice.emit("info", "Thank you. The message is reported and %s is blocked" % str(message.get("username", "the player")))
+
+
+func _fetch_chat_blocks() -> void:
+	var response: Dictionary = await socket.request("chatBlocks")
+	if response.get("ok", false):
+		_apply_chat_blocks(response.get("blocked", []))
+
+
+func _apply_chat_blocks(list: Array) -> void:
+	chat_blocked = list
+	chat_blocks_changed.emit()
+
+
+# ---------- things thrown at another player ----------
+
+## Throws one of THROWABLES at another player at our table. Everyone there sees it fly, us
+## included, through item_thrown. Like the chat it never makes the table busy, and a refusal
+## (too many at once) is a passing notice.
+func throw_item(to_id: String, item: String) -> void:
+	if not item in THROWABLES or to_id.is_empty() or to_id == player_id or state.is_empty():
+		return
+	var response: Dictionary = await socket.request("throwItem", {"to": to_id, "item": item})
+	if not response.get("ok", false):
+		notice.emit("warning", str(response.get("error", "That did not reach the table")))
+
+
+func _on_item_thrown(toss: Dictionary) -> void:
+	if state.is_empty() or toss.get("gameId") != state.get("gameId"):
+		return  # thrown at a table we have left
+	toss["from"] = str(toss.get("from", ""))
+	toss["to"] = str(toss.get("to", ""))
+	item_thrown.emit(toss)
+
+
 # ---------- internals ----------
 
 func _authenticate(path: String, body: Dictionary) -> Dictionary:
@@ -710,6 +1031,7 @@ func _http(method: HTTPClient.Method, path: String, body: Variant = null, conten
 	http.timeout = HTTP_TIMEOUT
 	add_child(http)
 	var headers := PackedStringArray(["Content-Type: " + content_type])
+	var asked_with := token
 	if not token.is_empty():
 		headers.append("Authorization: Bearer " + token)
 	var sent: int
@@ -727,11 +1049,17 @@ func _http(method: HTTPClient.Method, path: String, body: Variant = null, conten
 		return unreachable
 
 	var code: int = result[1]
-	var parsed: Variant = JSON.parse_string((result[3] as PackedByteArray).get_string_from_utf8())
+	# Not JSON.parse_string, which prints an engine error for an answer that is not JSON, such
+	# as the HTML page of a proxy in front of a server that is starting up
+	var json := JSON.new()
+	var parsed: Variant = json.data if json.parse((result[3] as PackedByteArray).get_string_from_utf8()) == OK else null
 	var data: Dictionary = parsed if parsed is Dictionary else {}
 	if code >= 200 and code < 300:
 		return {"ok": true, "error": "", "data": data}
-	return {"ok": false, "data": data, "error": str(data.get("error", "The server answered with error %d" % code))}
+	var error := str(data.get("error", "The server answered with error %d" % code))
+	if code == 401 and data.get("code") == LOGIN_ENDED_CODE and not asked_with.is_empty() and asked_with == token:
+		_login_ended(error)
+	return {"ok": false, "data": data, "error": error}
 
 
 # Sends a game action and reports a refusal through `action_failed`.
@@ -763,10 +1091,14 @@ func _end() -> void:
 # Connected, or connected again after the line dropped or the server was restarted.
 func _on_connected() -> void:
 	connection_changed.emit()
+	# Where the daily bonus stands: it may have been spun on another phone meanwhile
+	fetch_bonus()
+	_fetch_chat_blocks()  # whom we blocked in the chat, perhaps on another phone
 	# The server puts us back at our table by itself. Ask all the same: if the table no longer
 	# exists we must hear it now, not when the next move is refused.
 	if status() in ["waiting", "playing", "round_over"]:
 		resync()
+		_fetch_chat()  # and hear what was said while we were away
 	# A search ends when the connection drops; it goes on from where it was
 	if searching():
 		socket.request("findMatch", match_search)
@@ -783,9 +1115,18 @@ func _game_is_gone() -> void:
 
 
 func _on_connect_refused(_message: String) -> void:
-	# The server no longer accepts the saved login, e.g. the token has expired
-	logout()
-	notice.emit("warning", "Your login has expired. Please log in again.")
+	# A refusal that only meant "not just now" never gets here: the socket keeps trying
+	_login_ended(LOGIN_ENDED_MESSAGE)
+
+
+# The server has ended our login: for the account's safety, or because the account is gone
+# (or it is a 24-hour token from an older version that has run out). A slow or unreachable
+# server never ends up here.
+func _login_ended(message: String) -> void:
+	if token.is_empty():
+		return  # already logged out, e.g. the socket and a request saying the same
+	_forget_login()
+	notice.emit("warning", message)
 
 
 func _on_event(event_name: String, payload: Variant) -> void:
@@ -816,10 +1157,16 @@ func _on_event(event_name: String, payload: Variant) -> void:
 		"coins":
 			coins = int(payload.get("coins", coins))
 			coins_changed.emit()
+		"dailyBonus":
+			_apply_bonus(payload)
 		"friendsState":
 			_apply_friends(payload)
 		"gameInvite":
 			invite_received.emit(payload)
+		"chat":
+			_add_chat(payload)
+		"itemThrown":
+			_on_item_thrown(payload)
 		"matchStatus":
 			if searching():
 				match_status = payload
@@ -847,10 +1194,16 @@ func _apply_state(new_state: Dictionary) -> void:
 		or groups.is_empty()
 	)
 	var turn_changed: bool = is_new_deal or state.get("currentPlayer") != new_state.get("currentPlayer")
+	var new_table: bool = state.get("gameId") != new_state.get("gameId")
 	groups = _reconcile_groups(groups, new_state, is_new_deal)
 	if not is_new_deal:
 		_note_joker_seen(new_state)
 	state = new_state
+	if new_table:
+		# Each table has its own chat, and what was said there before we sat down comes along
+		chat_log = []
+		chat_changed.emit()
+		_fetch_chat()
 
 	var now := Time.get_ticks_msec()
 	var turn_time: Variant = new_state.get("turnTimeLeft")
@@ -938,6 +1291,7 @@ func _stop_search() -> void:
 func _forget_game() -> void:
 	state = {}
 	groups = []
+	chat_log = []
 	turn_ends_at = 0
 	next_round_at = 0
 	turn_total = 0
