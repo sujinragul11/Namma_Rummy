@@ -144,6 +144,7 @@ flat = true
 
 [node name="ServerRow" type="HBoxContainer" parent="Margin/Row/Side/SideBox/AuthPanel/Form"]
 unique_name_in_owner = true
+visible = false
 theme_override_constants/separation = 10
 
 [node name="ServerLabel" type="Label" parent="Margin/Row/Side/SideBox/AuthPanel/Form/ServerRow"]

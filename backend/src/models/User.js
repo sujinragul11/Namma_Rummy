@@ -142,6 +142,23 @@ class User {
     return result.rows[0];
   }
 
+  // Explicit public fields only: never return phone, email, credentials or sessions.
+  static async publicProfile(userId) {
+    const result = await db.query(`
+      SELECT u.id, u.username, u.coins,
+        CASE WHEN a.image IS NULL THEN 0 ELSE a.version END AS avatar,
+        (SELECT COUNT(*)::int FROM player_games p WHERE p.user_id = u.id) AS "totalGames",
+        (SELECT COUNT(*)::int FROM player_games p WHERE p.user_id = u.id AND p.is_winner) AS "gamesWon",
+        (SELECT COUNT(*)::int FROM friendships f WHERE f.status = 'accepted'
+          AND (f.requester_id = u.id OR f.addressee_id = u.id)) AS friends
+      FROM users u LEFT JOIN avatars a ON a.user_id = u.id WHERE u.id = $1`, [userId]);
+    const profile = result.rows[0];
+    if (!profile) return null;
+    profile.winPercentage = profile.totalGames > 0
+      ? Math.round(profile.gamesWon / profile.totalGames * 1000) / 10 : 0;
+    return profile;
+  }
+
   static async comparePassword(password, hash) {
     return await bcrypt.compare(password, hash);
   }

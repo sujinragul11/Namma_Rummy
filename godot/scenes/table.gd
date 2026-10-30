@@ -88,6 +88,18 @@ var _frame_glow_style: StyleBoxFlat
 
 
 func _ready() -> void:
+	var score_button := Button.new()
+	score_button.name = "ScoreButton"
+	score_button.text = "Score"
+	score_button.tooltip_text = "View scores for every round"
+	score_button.custom_minimum_size = Vector2(82, 52)
+	Ui.tint_button(score_button, Ui.TEAL)
+	_leave_button.get_parent().add_child(score_button)
+	_leave_button.get_parent().move_child(score_button, 1)
+	score_button.pressed.connect(func() -> void:
+		if get_tree().get_first_node_in_group("score_board") == null:
+			add_child(preload("res://scenes/score_board.gd").new())
+	)
 	Ui.tint_button(_group_button, Ui.TEAL)
 	Ui.tint_button(_discard_button, Ui.BLUE)
 	Ui.tint_button(_declare_button, Ui.ORANGE)
@@ -301,6 +313,8 @@ func _refresh_opponents(is_pool: bool) -> void:
 			badge = PlayerBadge.new()
 			badge.name_width = 150.0
 			badge.pill = true
+			badge.profile_clickable = true
+			badge.profile_pressed.connect(_open_player_profile.bind(id))
 			_opponents.add_child(badge)
 			_badges[id] = badge
 
@@ -332,6 +346,14 @@ func _refresh_opponents(is_pool: bool) -> void:
 			_badges[id].queue_free()
 			_badges.erase(id)
 	_place_opponents()
+
+
+func _open_player_profile(user_id: String) -> void:
+	if get_tree().get_first_node_in_group(FriendsPanel.BACK_GROUP) != null:
+		return
+	var panel := preload("res://scenes/opponent_profile.gd").new(user_id)
+	add_child(panel)
+	panel.open()
 
 
 # Whose turn it is to draw and discard. Nobody's between rounds, and nobody's while the others

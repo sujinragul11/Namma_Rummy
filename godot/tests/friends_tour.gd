@@ -123,10 +123,14 @@ func _run() -> void:
 	await _press("FriendsButton")
 	_check("the friends list opens", await _until(func() -> bool: return _has("Rows")))
 	await _wait(0.5)
-	_check("an empty list says how to add a friend", _rows_text().contains("No friends yet"), _rows_text())
+	_check("it opens on the friends who are online", _rows_text().contains("None of your friends are online"), _rows_text())
+	await _press_tab("ALL FRIENDS")
+	_check("an empty list says how to add a friend", _rows_text().contains("Add a friend"), _rows_text())
 	await _shot("friends-empty")
 
 	# ---------- adding ----------
+	_check("the name field waits on its own tab", not _shown("AddButton"))
+	await _press_tab("ADD FRIEND")
 	await _press("AddButton")
 	_check("an empty name is answered with a hint", await _until(func() -> bool: return message_box.visible) and message_box.dialog_text.contains("username"), message_box.dialog_text)
 	await _press_in_box(message_box, "the hint's OK")
@@ -138,17 +142,20 @@ func _run() -> void:
 
 	_node("NameEdit").text = name_b.to_upper()
 	await _press("AddButton")
-	_check("the request is listed as waiting", await _until(func() -> bool: return _has_row(name_b)) and _rows_text().contains("Waiting for an answer"), _rows_text())
-	_check("the field is cleared", _node("NameEdit").text.is_empty(), _node("NameEdit").text)
+	_check("the field is cleared once the request is sent", await _until(func() -> bool: return _node("NameEdit").text.is_empty()), _node("NameEdit").text)
 	_check("the friend sees the request", await _until(func() -> bool: return b.friend_requests.size() == 1))
+	await _press_tab("REQUESTS")
+	_check("the request is listed as waiting", _has_row(name_b) and _rows_text().contains("Waiting for an answer"), _rows_text())
 	await _shot("friends-asked")
 
 	# ---------- the friend accepts, and is online ----------
 	b.answer_friend(Game.player_id, "accept")
+	_check("the answered request leaves the list", await _until(func() -> bool: return not _has_row(name_b)), _rows_text())
+	await _press_tab("ONLINE")
 	_check("the friend appears as online", await _until(func() -> bool: return _row_text(name_b).contains("Online")), _row_text(name_b))
-	_check("the heading counts who is online", _rows_text().contains("1 online"), _rows_text())
 
 	# ---------- a request arrives ----------
+	await _press_tab("REQUESTS")
 	c.add_friend(name_a)
 	_check("a request shows up while the list is open", await _until(func() -> bool: return _rows_text().contains("Friend requests") and _has_row(name_c)), _rows_text())
 	await _wait(0.3)
@@ -158,6 +165,9 @@ func _run() -> void:
 
 	# ---------- online and offline ----------
 	c.logout()
+	await _press_tab("ONLINE")
+	_check("a friend who leaves drops off the Online tab", await _until(func() -> bool: return not _has_row(name_c)) and _has_row(name_b), _rows_text())
+	await _press_tab("ALL FRIENDS")
 	_check("a friend who leaves is shown offline", await _until(func() -> bool: return _row_text(name_c).contains("Offline")), _row_text(name_c))
 	_check("friends who can play are listed first", _row_index(name_b) < _row_index(name_c))
 	await _wait(0.3)
@@ -191,8 +201,9 @@ func _run() -> void:
 	await _press("InviteButton")
 	_check("the list opens over the lobby", await _until(func() -> bool: return _has("Rows")))
 	await _wait(0.5)
-	_check("a friend who is online can be invited", not _row_button(name_b, "Invite").disabled)
-	_check("a friend who is offline cannot", _row_button(name_c, "Invite").disabled)
+	_check("a friend who is online can be invited", _row_button(name_b, "Invite") != null and not _row_button(name_b, "Invite").disabled)
+	await _press_tab("ALL FRIENDS")
+	_check("a friend who is offline cannot", _row_button(name_c, "Invite") != null and _row_button(name_c, "Invite").disabled)
 	await _shot("lobby-invite")
 	await _press_in_row(name_b, "Invite")
 	_check("the friend receives the invitation", await _until(func() -> bool: return invites_to_b.size() == 1) and invites_to_b[0].get("roomCode") == room and invites_to_b[0].get("username") == name_a, str(invites_to_b))
@@ -238,7 +249,9 @@ func _run() -> void:
 	await _press("FriendsButton")
 	await _until(func() -> bool: return _has("Rows"))
 	await _wait(0.5)
+	await _press_tab("ADD FRIEND")
 	_check("a player met at a table is not suggested when already a friend", not _rows_text().contains("Played with recently"), _rows_text())
+	await _press_tab("ALL FRIENDS")  # the friend is offline: not on the Online tab
 	await _press_in_row(name_c, "Remove")
 	_check("removing asks first", await _until(func() -> bool: return question_box.visible) and question_box.dialog_text.contains(name_c), question_box.dialog_text)
 	await _press_in_box(question_box, "Remove")
@@ -405,9 +418,10 @@ func _rows_text() -> String:
 	return " | ".join(texts)
 
 
+## A player's row; it sits inside a card in the list.
 func _row(username: String) -> Control:
 	var rows := _node("Rows") as Control
-	return null if rows == null else rows.get_node_or_null("Row_" + username) as Control
+	return null if rows == null else rows.find_child("Row_" + username, true, false) as Control
 
 
 func _has_row(username: String) -> bool:
@@ -427,7 +441,7 @@ func _row_text(username: String) -> String:
 
 func _row_index(username: String) -> int:
 	var row := _row(username)
-	return -1 if row == null else row.get_index()
+	return -1 if row == null else row.get_parent().get_index()  # the card's place in the list
 
 
 func _row_button(username: String, text: String) -> Button:
@@ -482,6 +496,18 @@ func _open_private_table() -> void:
 ## Taps a button of the screen. A button a finger cannot reach fails the tour.
 func _press(button_name: String) -> void:
 	await _press_button(_node(button_name) as BaseButton, button_name)
+
+
+## Opens a tab of the friends list (ONLINE, ALL FRIENDS, REQUESTS, ADD FRIEND) with a finger.
+func _press_tab(label: String) -> void:
+	var found: Button = null
+	var tabs := _node("Tabs") as Control
+	if tabs != null:
+		for tab: Button in tabs.get_children():
+			if tab.text.begins_with(label):
+				found = tab
+	await _press_button(found, "the %s tab" % label)
+	await _wait(0.2)
 
 
 func _press_in_row(username: String, text: String) -> void:

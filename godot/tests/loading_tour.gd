@@ -71,20 +71,17 @@ func _run() -> void:
 	await _shot("2-connecting")
 	_check("no login form while nothing answers", not _has("AuthPanel") and not _has("MenuPanel"))
 	_check("nothing answering is soon said, with Try again", await _until(func() -> bool: return _shown("LoadingTrouble"), 12.0))
-	_check("it names the address in a test build", _text_in("LoadingTrouble").contains(_wrong_url()), _text_in("LoadingTrouble"))
-	_check("Try again and the server address are offered", _shown("TryAgainButton") and _shown("ServerAddressButton"))
+	_check("it asks to check the connection and names no address", _text_in("LoadingTrouble").contains("Unable to connect") and not _text_in("LoadingTrouble").contains("127.0.0.1"), _text_in("LoadingTrouble"))
+	_check("Try again is offered, and no server address", _shown("TryAgainButton") and not _shown("ServerAddressButton"))
 	_check("still no login form", not _has("AuthPanel") and _main.loading())
 	await _wait(0.6)
 	await _shot("3-no-server")
-	await _tap(_node("ServerAddressButton"))
-	_check("the address can be changed there", _shown("ServerAddressEdit") and _text("ServerAddressEdit") == _wrong_url(), _text("ServerAddressEdit"))
-	await _wait(0.2)
-	await _shot("3b-server-address")
-	_node("ServerAddressEdit").text = _url()
-	await _tap(_node("ServerAddressConnect"))
+	# Players cannot change the address; a developer starts the app with --server. As that would:
+	Game.set_server_url(_url())
+	await _tap(_node("TryAgainButton"))
 	_check("the new address is used", Game.server_url == _url(), Game.server_url)
 	_check("and waited for again", await _until(func() -> bool: return not _node("LoadingTrouble").visible, 2.0) and _main.loading())
-	_check("nothing there either: said again, with the new address", await _until(func() -> bool: return _shown("LoadingTrouble") and _text_in("LoadingTrouble").contains(_url()), 12.0), _text_in("LoadingTrouble"))
+	_check("nothing there either: said again", await _until(func() -> bool: return _shown("LoadingTrouble"), 12.0), _text_in("LoadingTrouble"))
 
 	# ---------- the server comes up: the screen moves on by itself ----------
 	_start_server(["--fresh"])
@@ -129,9 +126,9 @@ func _run() -> void:
 	Game.server_url = _wrong_url()
 	await _restart_app()
 	_check("old address: the logo stays", await _until(func() -> bool: return _shown("LoadingTrouble"), 15.0) and Game.is_logged_in())
-	await _tap(_node("ServerAddressButton"))
-	_node("ServerAddressEdit").text = _url()
-	await _tap(_node("ServerAddressConnect"))
+	Game.set_server_url(_url())
+	Game.reconnect()  # the same login, at the new address
+	await _tap(_node("TryAgainButton"))
 	_check("the new address takes the same login to the menu", await _until(func() -> bool: return _shown("MenuPanel"), 10.0) and Game.user.get("username") == username and Game.server_url == _url())
 
 	# ---------- a saved login while the server cannot check logins ----------

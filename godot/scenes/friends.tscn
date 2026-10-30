@@ -1,70 +1,94 @@
-[gd_scene format=3]
+﻿[gd_scene format=3]
 
 [ext_resource type="Script" path="res://scenes/friends.gd" id="1_friends"]
+[ext_resource type="Script" path="res://scenes/smooth_scroll.gd" id="2_scroll"]
 
 [node name="FriendsPanel" type="Control"]
 anchor_right = 1.0
 anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
 script = ExtResource("1_friends")
 
 [node name="Shade" type="ColorRect" parent="."]
 unique_name_in_owner = true
 anchor_right = 1.0
 anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
 color = Color(0, 0, 0, 0.72)
 
 [node name="Margin" type="MarginContainer" parent="."]
 anchor_right = 1.0
 anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
 mouse_filter = 2
-theme_override_constants/margin_left = 150
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 150
-theme_override_constants/margin_bottom = 16
+theme_override_constants/margin_left = 80
+theme_override_constants/margin_top = 48
+theme_override_constants/margin_right = 80
+theme_override_constants/margin_bottom = 48
 
 [node name="Panel" type="PanelContainer" parent="Margin"]
 unique_name_in_owner = true
 
-[node name="Box" type="VBoxContainer" parent="Margin/Panel"]
+[node name="Body" type="HBoxContainer" parent="Margin/Panel"]
+theme_override_constants/separation = 0
+
+[node name="Sidebar" type="PanelContainer" parent="Margin/Panel/Body"]
+unique_name_in_owner = true
+
+[node name="Tabs" type="VBoxContainer" parent="Margin/Panel/Body/Sidebar"]
+unique_name_in_owner = true
+theme_override_constants/separation = 2
+
+[node name="Box" type="VBoxContainer" parent="Margin/Panel/Body"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 0
+
+[node name="Header" type="HBoxContainer" parent="Margin/Panel/Body/Box"]
 theme_override_constants/separation = 12
 
-[node name="Header" type="HBoxContainer" parent="Margin/Panel/Box"]
-theme_override_constants/separation = 12
-
-[node name="Title" type="Label" parent="Margin/Panel/Box/Header"]
+[node name="Title" type="Label" parent="Margin/Panel/Body/Box/Header"]
 unique_name_in_owner = true
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 32
+theme_override_font_sizes/font_size = 36
 text = "Friends"
+horizontal_alignment = 1
 
-[node name="CloseButton" type="Button" parent="Margin/Panel/Box/Header"]
+[node name="CloseButton" type="Button" parent="Margin/Panel/Body/Box/Header"]
 unique_name_in_owner = true
-text = "Close"
+custom_minimum_size = Vector2(56, 56)
+theme_override_font_sizes/font_size = 32
+theme_override_colors/font_color = Color(0.9, 0.45, 0.1, 1)
+text = "×"
+tooltip_text = "Close friends"
 
-[node name="AddRow" type="HBoxContainer" parent="Margin/Panel/Box"]
-theme_override_constants/separation = 12
-
-[node name="NameEdit" type="LineEdit" parent="Margin/Panel/Box/AddRow"]
+[node name="Content" type="PanelContainer" parent="Margin/Panel/Body/Box"]
 unique_name_in_owner = true
-size_flags_horizontal = 3
-placeholder_text = "Friend's username"
+size_flags_vertical = 3
+
+[node name="Column" type="VBoxContainer" parent="Margin/Panel/Body/Box/Content"]
+theme_override_constants/separation = 18
+
+[node name="AddRow" type="HBoxContainer" parent="Margin/Panel/Body/Box/Content/Column"]
+unique_name_in_owner = true
+alignment = 1
+theme_override_constants/separation = 10
+
+[node name="NameEdit" type="LineEdit" parent="Margin/Panel/Body/Box/Content/Column/AddRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(320, 52)
+placeholder_text = "Enter friend name..."
 max_length = 50
 
-[node name="AddButton" type="Button" parent="Margin/Panel/Box/AddRow"]
+[node name="AddButton" type="Button" parent="Margin/Panel/Body/Box/Content/Column/AddRow"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(110, 52)
 text = "Add friend"
 
-[node name="Scroll" type="ScrollContainer" parent="Margin/Panel/Box"]
+[node name="Scroll" type="ScrollContainer" parent="Margin/Panel/Body/Box/Content/Column"]
+unique_name_in_owner = true
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
+script = ExtResource("2_scroll")
 
-[node name="Rows" type="VBoxContainer" parent="Margin/Panel/Box/Scroll"]
+[node name="Rows" type="VBoxContainer" parent="Margin/Panel/Body/Box/Content/Column/Scroll"]
 unique_name_in_owner = true
 size_flags_horizontal = 3
-theme_override_constants/separation = 10
+size_flags_vertical = 3
+theme_override_constants/separation = 12

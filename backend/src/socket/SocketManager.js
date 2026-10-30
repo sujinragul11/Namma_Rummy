@@ -35,6 +35,7 @@ class SocketManager {
     this.cleanupTimers = new Map(); // gameId -> pending removal
     this.snapshots = false; // true once the database can hold games in progress
     this.snapshotWrites = new Map(); // gameId -> the write of that game still under way
+    this.rejoinWrites = new Map(); // hold table actions and the next-round timer during payment
     // userId -> profile photo version (0: none), read when the player connects and kept up
     // to date by avatarChanged; table states carry it for each player
     this.avatars = new Map();
@@ -188,6 +189,35 @@ class SocketManager {
     }
   }
 
+  async rejoinGame(gameEngine, userId, expectedScore) {
+    const { gameId } = gameEngine;
+    if (this.rejoinWrites.has(gameId)) throw new Error('A rejoin is being processed. Please try again.');
+    if (!this.snapshots) throw new Error('Rejoining is unavailable until the game database is ready');
+    if (!gameEngine.rejoinOffer(userId)) throw new Error('You cannot rejoin this table right now');
+    const pending = (async () => {
+      // Finish older snapshot writes before the atomic payment + replacement snapshot.
+      await this.saveSnapshot(gameEngine);
+      const next = GameEngine.fromJSON(JSON.parse(JSON.stringify(gameEngine.serialize())));
+      const offer = next.rejoin(userId);
+      if (expectedScore !== offer.score) throw new Error('The rejoin score changed. Please check the new score and confirm again.');
+      const balance = await Coins.rejoin(gameId, userId, offer.fee, next.serialize());
+      // Only the rejoined seat and history changed. Preserve live connection flags.
+      const player = gameEngine.players.get(userId);
+      const restored = next.players.get(userId);
+      for (const key of ['totalScore', 'eliminated', 'rejoinPaid', 'rejoins']) player[key] = restored[key];
+      gameEngine.scoreHistory = next.scoreHistory;
+      this.sendCoins(userId, balance);
+      await this.afterMove(gameEngine);
+      return offer;
+    })();
+    this.rejoinWrites.set(gameId, pending);
+    try {
+      return await pending;
+    } finally {
+      this.rejoinWrites.delete(gameId);
+    }
+  }
+
   async payPot(gameEngine, winnerId) {
     if (!gameEngine.stake) return;
     if (!winnerId) {
@@ -313,6 +343,8 @@ class SocketManager {
         socket.on(event, async (data, ack) => {
           try {
             await this.ready; // right after a restart the games are still being brought back
+            const current = this.getUserGame(userId);
+            if (current) await this.rejoinWrites.get(current.gameId)?.catch(() => {});
             const result = await handler(data || {});
             if (typeof ack === 'function') ack({ ok: true, ...result });
           } catch (error) {
@@ -470,9 +502,18 @@ class SocketManager {
       });
 
       // Ask for the current state again
+      handle('rejoinGame', async (data) => {
+        const gameEngine = this.requireGame(userId);
+        return this.rejoinGame(gameEngine, userId, data.score);
+      });
+
       handle('reconnectGame', async () => {
         const gameEngine = this.requireGame(userId);
         return { gameState: this.gameStateFor(gameEngine, userId) };
+      });
+
+      handle('playerProfile', async (data) => {
+        return this.playerProfile(userId, String(data.userId || ''));
       });
 
       // Leave game
@@ -779,7 +820,16 @@ class SocketManager {
     this.broadcastState(gameEngine);
   }
 
+  async playerProfile(userId, otherId) {
+    const gameEngine = this.requireGame(userId);
+    if (!gameEngine.players.has(otherId)) throw new Error('This player is not at your table');
+    const profile = await User.publicProfile(otherId);
+    if (!profile) throw new Error('This player is no longer available');
+    return { profile };
+  }
+
   async removeFromGame(gameEngine, userId) {
+    await this.rejoinWrites.get(gameEngine.gameId)?.catch(() => {});
     const username = this.nameOf(gameEngine, userId);
     const wasWaiting = gameEngine.status === 'waiting';
     const roundResult = gameEngine.removePlayer(userId);
@@ -878,6 +928,7 @@ class SocketManager {
   }
 
   async onTimer(gameEngine) {
+    await this.rejoinWrites.get(gameEngine.gameId)?.catch(() => {});
     if (this.games.get(gameEngine.gameId) !== gameEngine) return;
 
     try {
@@ -901,7 +952,7 @@ class SocketManager {
           });
         }
       } else if (gameEngine.status === 'round_over') {
-        gameEngine.startNextRound();
+        roundResult = gameEngine.startNextRound();
       }
 
       await this.afterMove(gameEngine, roundResult);

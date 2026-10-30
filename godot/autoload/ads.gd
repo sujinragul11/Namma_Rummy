@@ -128,6 +128,9 @@ func _on_state_changed() -> void:
 
 
 func _may_show(_moment: String) -> bool:
+	# A rejoin decision has a deadline: an ad must not cover its button.
+	if Game.state.get("rejoin") is Dictionary:
+		return false
 	if _backend == null or not _showing.is_empty() or not _in_foreground:
 		return false
 	if _last_shown_msec >= 0 and Time.get_ticks_msec() - _last_shown_msec < min_gap_seconds * 1000.0:

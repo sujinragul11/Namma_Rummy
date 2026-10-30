@@ -19,6 +19,8 @@ const NAME_WIDTH := 340.0  # room for a 20-letter username beside three buttons
 
 var _asked_name := ""  # the username last sent, to clear the field once it shows up in a list
 var _rebuild_queued := false
+var _tab := "online"
+var _tabs: Dictionary = {}
 
 @onready var _panel: Control = %Panel
 @onready var _title: Label = %Title
@@ -26,6 +28,7 @@ var _rebuild_queued := false
 @onready var _name_edit: LineEdit = %NameEdit
 @onready var _add_button: Button = %AddButton
 @onready var _rows: VBoxContainer = %Rows
+@onready var _scroll: SmoothScroll = %Scroll
 
 
 ## Opens the panel over `screen`, unless it is open already.
@@ -39,11 +42,26 @@ static func open(screen: Control) -> void:
 func _ready() -> void:
 	add_to_group(BACK_GROUP)
 	# Solid like the message boxes: the screen underneath must not show through the list
-	var frame := Ui.box(Ui.FELT_DARK, 22, 30, 22)
-	frame.border_color = Ui.GOLD.darkened(0.25)
-	frame.set_border_width_all(2)
+	var frame := Ui.box(Color("fff9e9"), 12, 8, 8)
+	frame.border_color = Color("22bda5")
+	frame.set_border_width_all(4)
 	_panel.add_theme_stylebox_override("panel", frame)
 	_title.add_theme_font_override("font", Ui.bold_font)
+	_title.add_theme_color_override("font_color", Color.WHITE)
+	_title.add_theme_stylebox_override("normal", Ui.box(Color("0da88e"), 18, 70, 4))
+	%Sidebar.add_theme_stylebox_override("panel", Ui.box(Color("23bca7"), 0, 10, 56))
+	%Sidebar.draw.connect(_draw_bamboo)
+	%Content.add_theme_stylebox_override("panel", Ui.box(Color("ece5d1"), 0, 24, 18))
+	_scroll.paint_bar(Color("d8ceb2"), Color("0da88e"))
+	for entry: Array in [["online", "ONLINE"], ["all", "ALL FRIENDS"], ["requests", "REQUESTS"], ["add", "ADD FRIEND"]]:
+		var tab := Button.new()
+		tab.text = entry[1]
+		tab.custom_minimum_size = Vector2(194, 60)
+		tab.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tab.add_theme_font_size_override("font_size", 22)
+		tab.pressed.connect(_select_tab.bind(entry[0]))
+		%Tabs.add_child(tab)
+		_tabs[entry[0]] = tab
 	Ui.tint_button(_add_button, Ui.PRIMARY)
 	_close_button.pressed.connect(close)
 	_add_button.pressed.connect(_on_add)
@@ -56,6 +74,12 @@ func _ready() -> void:
 	Game.busy_changed.connect(_refresh_buttons)
 	_rebuild()
 	get_tree().process_frame.connect(_appear, CONNECT_ONE_SHOT)
+
+
+func _select_tab(tab: String) -> void:
+	_tab = tab
+	_rebuild()
+	_scroll.scroll_vertical = 0  # each tab opens at the top of its own list
 
 
 func close() -> void:
@@ -92,6 +116,16 @@ func _queue_rebuild() -> void:
 
 func _rebuild() -> void:
 	_rebuild_queued = false
+	%AddRow.visible = _tab == "add"
+	for key: String in _tabs:
+		var button: Button = _tabs[key]
+		var selected := key == _tab
+		button.text = {"online": "ONLINE", "all": "ALL FRIENDS", "requests": "REQUESTS", "add": "ADD FRIEND"}[key] + ("  »" if selected else "")
+		button.add_theme_stylebox_override("normal", Ui.box(Color("ffe654") if selected else Color("23bca7"), 0, 18, 8))
+		button.add_theme_stylebox_override("hover", Ui.box(Color("fff18a"), 0, 18, 8))
+		button.add_theme_stylebox_override("pressed", Ui.box(Color("ffd43b"), 0, 18, 8))
+		button.add_theme_color_override("font_color", Color("145e54"))
+		button.add_theme_color_override("font_hover_color", Color("145e54"))
 	_clear_field_when_asked()
 	for row in _rows.get_children():
 		_rows.remove_child(row)
@@ -100,7 +134,7 @@ func _rebuild() -> void:
 	if not Game.is_online():
 		_add_note("Connecting to the game server... Your friends will show up in a moment.")
 
-	if not Game.friend_requests.is_empty():
+	if _tab == "requests" and not Game.friend_requests.is_empty():
 		_add_heading("Friend requests")
 		for request: Dictionary in Game.friend_requests:
 			var id := str(request.get("id", ""))
@@ -111,16 +145,16 @@ func _rebuild() -> void:
 				_button("Block", Ui.SLATE, _confirm_block.bind(id, username)),
 			], request)
 
-	var online := Game.friends_online()
-	_add_heading("Friends  ·  %d online" % online if online > 0 else "Friends")
-	if Game.friends.is_empty():
-		_add_note("No friends yet. Type a friend's username above and tap Add friend. They see your request the next time they open the game.")
 	var inviting := Game.status() == "waiting"
 	var seats_left := int(Game.state.get("maxPlayers", 0)) - Game.players().size()
 	for friend: Dictionary in _sorted(Game.friends):
+		if _tab not in ["online", "all"]:
+			continue
 		var id := str(friend.get("id", ""))
 		var username := str(friend.get("username", "Player"))
 		var status := str(friend.get("status", "offline"))
+		if _tab == "online" and status == "offline":
+			continue
 		var buttons: Array[Button] = []
 		if inviting:
 			var invite := _button("Invite", Ui.BLUE, Game.invite_friend.bind(id))
@@ -128,24 +162,66 @@ func _rebuild() -> void:
 			invite.disabled = status not in ["online", "lobby"] or seats_left <= 0 or _at_my_table(id)
 			invite.set_meta("free", not invite.disabled)
 			buttons.append(invite)
-		buttons.append(_button("Remove", Ui.SLATE, _confirm_remove.bind(id, username)))
+		buttons.append(_button("Remove", Ui.RED, _confirm_remove.bind(id, username)))
 		_add_row(username, "At your table" if _at_my_table(id) else STATUS_TEXT.get(status, "Offline"), status, buttons, friend)
 
-	if not Game.friend_asked.is_empty():
+	if _tab == "requests" and not Game.friend_asked.is_empty():
 		_add_heading("Waiting for an answer")
 		for asked: Dictionary in Game.friend_asked:
 			_add_row(str(asked.get("username", "Player")), "has not answered yet", "", [
 				_button("Cancel", Ui.SLATE, Game.remove_friend.bind(str(asked.get("id", "")))),
 			], asked)
 
-	if not Game.recent_players.is_empty():
+	if _tab == "add" and not Game.recent_players.is_empty():
 		_add_heading("Played with recently")
 		for player: Dictionary in Game.recent_players:
 			var username := str(player.get("username", "Player"))
 			_add_row(username, "you met at a table", "", [
 				_button("Add friend", Ui.PRIMARY, Game.add_friend.bind(username)),
 			], player)
+	if _rows.get_child_count() == 0:
+		var messages := {
+			"online": "None of your friends are online right now.",
+			"all": "Your friends will appear here.\nAdd a friend to start connecting!",
+			"requests": "Oops! You don't have any friend\nrequests yet!",
+			"add": "Search your friends by name to\nstart connecting!",
+		}
+		var empty := VBoxContainer.new()
+		empty.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		empty.alignment = BoxContainer.ALIGNMENT_CENTER
+		empty.add_theme_constant_override("separation", 22)
+		var icon := Control.new()
+		icon.custom_minimum_size = Vector2(80, 70)
+		icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		icon.draw.connect(func() -> void:
+			var ink := Color("71aa9a")
+			icon.draw_circle(Vector2(51, 16), 10, ink)
+			icon.draw_style_box(Ui.box(ink, 12, 0, 0), Rect2(35, 27, 34, 26))
+			icon.draw_circle(Vector2(28, 31), 12, ink)
+			icon.draw_style_box(Ui.box(ink, 12, 0, 0), Rect2(8, 44, 40, 24))
+		)
+		empty.add_child(icon)
+		var note := Label.new()
+		note.text = messages[_tab]
+		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		note.add_theme_font_size_override("font_size", 24)
+		note.add_theme_color_override("font_color", Color("71aa9a"))
+		empty.add_child(note)
+		_rows.add_child(empty)
 	_refresh_buttons()
+
+
+func _draw_bamboo() -> void:
+	var sidebar: Control = %Sidebar
+	var ink := Color(0.02, 0.43, 0.37, 0.12)
+	var base := Vector2(64, sidebar.size.y - 12)
+	for branch in 3:
+		var tip := Vector2(46 + branch * 50, sidebar.size.y * 0.52)
+		sidebar.draw_line(base, tip, ink, 5, true)
+		for leaf in 5:
+			var at := base.lerp(tip, 0.25 + leaf * 0.14)
+			var direction := Vector2(42 if leaf % 2 == 0 else -36, -22)
+			sidebar.draw_colored_polygon(PackedVector2Array([at, at + direction, at + direction * 0.5 + Vector2(0, 12)]), ink)
 
 
 # Nothing can be sent twice while a request is on its way, or while offline.
@@ -200,7 +276,7 @@ func _add_heading(text: String) -> void:
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_size_override("font_size", 20)
-	label.add_theme_color_override("font_color", Ui.PALE_GREEN)
+	label.add_theme_color_override("font_color", Color("317b6d"))
 	_rows.add_child(label)
 
 
@@ -209,6 +285,7 @@ func _add_note(text: String) -> void:
 	label.text = text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color("317b6d"))
 	_rows.add_child(label)
 
 
@@ -226,21 +303,48 @@ func _add_row(username: String, info: String, status: String, buttons: Array, wh
 	dot.add_theme_stylebox_override("panel", Ui.box(STATUS_COLORS.get(status, STATUS_COLORS.offline), int(DOT_SIZE / 2.0), 0, 0))
 	row.add_child(dot)
 
-	var badge := PlayerBadge.new()
-	badge.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	badge.name_width = NAME_WIDTH
-	badge.show_player(username, info, false, status == "offline")
-	badge.show_photo(str(who.get("id", "")), int(who.get("avatar", 0)))
-	row.add_child(badge)
+	row.add_child(ScoreCard.Avatar.new(str(who.get("id", "")), username, int(who.get("avatar", 0)), false, 0.0))
+	var details := VBoxContainer.new()
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var name_label := Label.new()
+	name_label.text = username
+	name_label.custom_minimum_size.x = 120
+	name_label.clip_text = true
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.add_theme_font_override("font", Ui.bold_font)
+	name_label.add_theme_font_size_override("font_size", 26)
+	name_label.add_theme_color_override("font_color", Color("796014"))
+	details.add_child(name_label)
+	if who.has("coins"):
+		var coins := CoinLabel.new()
+		coins.amount = int(who.get("coins", 0))
+		coins.font_size = 23
+		coins.text_color = Color("796014")
+		details.add_child(coins)
+	var presence := Label.new()
+	presence.text = info
+	presence.add_theme_font_size_override("font_size", 18)
+	presence.add_theme_color_override("font_color", Color("448b78"))
+	details.add_child(presence)
+	row.add_child(details)
 
 	for button: Button in buttons:
 		row.add_child(button)
-	_rows.add_child(row)
+	var card := PanelContainer.new()
+	var style := Ui.box(Color("fff9dc"), 8, 12, 8)
+	style.border_color = Color("d2a83f")
+	style.border_width_bottom = 3
+	card.add_theme_stylebox_override("panel", style)
+	card.add_child(row)
+	_rows.add_child(card)
 
 
 func _button(text: String, color: Color, on_press: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
+	button.custom_minimum_size = Vector2(110, 44)
+	button.add_theme_font_size_override("font_size", 20)
 	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	Ui.tint_button(button, color)
 	button.pressed.connect(on_press)

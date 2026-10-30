@@ -18,6 +18,10 @@ var _table: Control
 
 
 func _ready() -> void:
+	# The dummy display reports a square screen; exercise the actual landscape layout.
+	if DisplayServer.get_name() == "headless":
+		get_window().content_scale_size = Vector2i(1280, 720)
+		get_window().content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--shots="):
 			_shots = argument.trim_prefix("--shots=")
@@ -75,7 +79,75 @@ func _run() -> void:
 	await _wait(1.8)
 	_check("six rows", _node("ResultRows").get_child_count() == 6)
 	_check("the countdown stays on the screen", _on_screen("NextRoundLabel"))
+	var score_scroll: ScrollContainer = _node("ResultScroll")
+	var score_rows: VBoxContainer = _node("ResultRows")
+	_check("six-player scores overflow into a visible scrollbar", score_scroll.get_v_scroll_bar().visible and score_rows.size.y > score_scroll.size.y, "scroll=%s rows=%s viewport=%s" % [score_scroll.size, score_rows.size, get_viewport_rect().size])
+	var at := score_scroll.global_position + Vector2(220, 60)
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	wheel.pressed = true
+	wheel.position = at
+	wheel.global_position = at
+	get_viewport().push_input(wheel, true)
+	await get_tree().process_frame
+	_check("wheel scrolling works over player cards", score_scroll.scroll_vertical > 0)
+	score_scroll.scroll_vertical = 0
+	await get_tree().process_frame
+	var touch := InputEventScreenTouch.new()
+	touch.index = 0
+	touch.pressed = true
+	touch.position = at
+	get_viewport().push_input(touch, true)
+	var swipe := InputEventScreenDrag.new()
+	swipe.index = 0
+	swipe.position = at - Vector2(0, 100)
+	swipe.relative = Vector2(0, -100)
+	get_viewport().push_input(swipe, true)
+	touch.pressed = false
+	touch.position = swipe.position
+	get_viewport().push_input(touch, true)
+	await get_tree().process_frame
+	_check("finger swipes work over player cards", score_scroll.scroll_vertical >= 90, "scroll=%s touch=%s at=%s rect=%s" % [score_scroll.scroll_vertical, score_scroll._touch_index, at, score_scroll.get_global_rect()])
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = at
+	press.global_position = at
+	get_viewport().push_input(press, true)
+	var motion := InputEventMouseMotion.new()
+	motion.position = at - Vector2(0, 1000)
+	motion.global_position = motion.position
+	motion.relative = Vector2(0, -1000)
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT
+	get_viewport().push_input(motion, true)
+	press.pressed = false
+	press.position = motion.position
+	press.global_position = motion.position
+	get_viewport().push_input(press, true)
+	await get_tree().process_frame
+	var last_row: Control = score_rows.get_child(5)
+	_check("dragging reaches the full sixth player's row above the footer", last_row.get_global_rect().end.y <= score_scroll.get_global_rect().end.y + 1 and last_row.global_position.y >= score_scroll.global_position.y)
+	score_scroll.ensure_control_visible(score_rows.get_child(3))
+	await get_tree().process_frame
+	var fourth: Control = score_rows.get_child(3)
+	_check("the complete fourth player's score is reachable", fourth.global_position.y >= score_scroll.global_position.y - 1 and fourth.get_global_rect().end.y <= score_scroll.get_global_rect().end.y + 1)
 	await _shot("six-players")
+
+	# A wrong declaration shows the complete hand, including thirteen separate groups.
+	var wrong_result := _pool_round()
+	wrong_result.players[0].outcome = "wrong_declaration"
+	wrong_result.players[0].points = 80
+	wrong_result.players[0].eliminated = true
+	var singles: Array = []
+	for card: Dictionary in wrong_result.players[0].melds[0].cards:
+		singles.append({"cards": [card]})
+	wrong_result.players[0].melds = singles
+	_set_result(2, "round_over", {"poolLimit": 240}, wrong_result)
+	await _wait(1.6)
+	_check("wrong declaration has its own label", _row_has(0, "Wrong Declaration") and not _row_has(0, "DROPPED"))
+	_check("wrong declaration reveals every card", _cards_in(0).size() == 13 and _cards_in(0).all(func(view: CardView) -> bool: return not view.face_down))
+	var shown_hand: Control = _row(0).find_child("ResultHand", true, false)
+	_check("thirteen ungrouped cards fit inside the hand column", _cards_in(0).all(func(view: CardView) -> bool: return shown_hand.get_global_rect().encloses(view.get_global_rect())))
 
 	# ---------- a game that ends during play: the buttons are in place in the very first frame ----------
 	# (on a new table, whose result buttons have never been laid out before)

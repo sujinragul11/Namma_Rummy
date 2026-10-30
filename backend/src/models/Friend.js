@@ -96,7 +96,7 @@ class Friend {
   // Everyone a player is connected to, in three lists of { id, username }
   static async list(userId) {
     const result = await db.query(
-      `SELECT f.status, f.requester_id, u.id, u.username
+      `SELECT f.status, f.requester_id, u.id, u.username, u.coins
        FROM friendships f
        JOIN users u ON u.id = CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END
        WHERE (f.requester_id = $1 OR f.addressee_id = $1) AND f.status <> 'blocked'
@@ -106,7 +106,7 @@ class Friend {
 
     const lists = { friends: [], incoming: [], outgoing: [] };
     for (const row of result.rows) {
-      const entry = { id: row.id, username: row.username };
+      const entry = { id: row.id, username: row.username, coins: row.coins };
       if (row.status === 'accepted') lists.friends.push(entry);
       else if (row.requester_id === userId) lists.outgoing.push(entry);
       else lists.incoming.push(entry);

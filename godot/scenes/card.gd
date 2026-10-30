@@ -135,6 +135,8 @@ func _gui_input(event: InputEvent) -> void:
 func _draw() -> void:
 	var w := size.x
 	var h := size.y
+	if w < 4.0 or h <= 0.0:
+		return # A newly created scorecard may draw before its first layout.
 	var radius := int(w * 0.1)
 	var whole := Rect2(Vector2.ZERO, size)
 

@@ -172,8 +172,8 @@ func _ready() -> void:
 	_stake_option.item_selected.connect(func(_index: int) -> void: _stake_picked = true)
 	_type_option.item_selected.connect(func(index: int) -> void: _setup_title.text = GAME_TITLES[index])
 	_server_edit.text = Game.server_url
-	# The builds for the app stores always play on the public server
-	_server_row.visible = not Config.store_build
+	# Connection settings are internal; players never need to enter an address.
+	_server_row.visible = false
 	_rules_text.text = RULES
 
 	_auth_title.add_theme_font_override("font", Ui.bold_font)

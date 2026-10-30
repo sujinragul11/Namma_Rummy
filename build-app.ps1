@@ -23,7 +23,7 @@ $Project = Join-Path $PSScriptRoot "godot"
 $Out = Join-Path $PSScriptRoot "build"
 $Presets = Join-Path $Project "export_presets.cfg"
 $Keytool = Join-Path $JavaHome "bin\keytool.exe"
-$UploadKey = Join-Path $KeyFolder "upload-key.jks"
+$UploadKey = Join-Path $KeyFolder "upload-key-new-20261024-095933.jks"
 $DebugKey = Join-Path $KeyFolder "debug.keystore"
 
 function Stop-Build([string]$Message) {

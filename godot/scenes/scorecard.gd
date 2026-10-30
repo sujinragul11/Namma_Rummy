@@ -53,6 +53,7 @@ var _bar_row: HBoxContainer
 var _next_label: Label
 var _leave_button: Button
 var _again_button: Button
+var _rejoin_button: Button
 var _wild: VBoxContainer
 var _wild_card: CardView
 var _confetti: CPUParticles2D
@@ -78,6 +79,11 @@ func refresh() -> void:
 	var finished := status == "finished"
 	_leave_button.visible = finished
 	_again_button.visible = finished
+	var offer: Variant = Game.state.get("rejoin")
+	_rejoin_button.visible = not finished and offer is Dictionary
+	if _rejoin_button.visible:
+		_rejoin_button.text = "Rejoin · %s coins" % Ui.coins_text(int(offer.get("fee", 0)))
+		_rejoin_button.disabled = Game.busy or not Game.is_online()
 	# The same result arrives again with every update; build it only when it changes
 	var key := "%s/%s/%s" % [Game.state.get("gameId"), result.get("round"), status]
 	if key != _key:
@@ -94,6 +100,10 @@ func _process(_delta: float) -> void:
 	var prefix := "You are out of the match. " if Game.me().get("eliminated", false) else ""
 	var seconds := Game.seconds_until(Game.next_round_at)
 	_next_label.text = "%sNext %s in %d %s" % [prefix, "deal" if Game.deals() > 0 else "round", seconds, "second" if seconds == 1 else "seconds"]
+	var offer: Variant = Game.state.get("rejoin")
+	if offer is Dictionary:
+		_next_label.text = "Rejoin at %d points · %ds left" % [int(offer.get("score", 0)), seconds]
+		_rejoin_button.disabled = seconds <= 0 or Game.busy or not Game.is_online()
 	if seconds > 3:
 		_last_beep = -1
 	elif seconds > 0 and seconds != _last_beep:
@@ -190,12 +200,18 @@ func _build_row(row: Dictionary, finished: bool, winner_id: String, delay: float
 	name_label.clip_text = true
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	player.add_child(name_label)
+	var wrong_declaration: bool = row.get("outcome") == "wrong_declaration"
+	if wrong_declaration:
+		var reason := _label("Wrong Declaration", 18, LOSS, true)
+		reason.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		reason.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		player.add_child(reason)
 	line.add_child(player)
 
 	# The hand as it was scored. A dropped hand stays face down, as it was never shown.
 	var dropped: bool = row.get("outcome") == "dropped"
 	var mark := ""
-	if row.get("eliminated", false) and not is_winner:
+	if row.get("eliminated", false) and not is_winner and not wrong_declaration:
 		mark = "OUT"
 	elif dropped:
 		mark = "DROPPED"
@@ -241,7 +257,18 @@ func _build_row(row: Dictionary, finished: bool, winner_id: String, delay: float
 		money.alignment = BoxContainer.ALIGNMENT_CENTER
 		total_column.add_child(money)
 	line.add_child(total_column)
+	# Decorative cards, labels and avatars must let swipes reach the scroll container.
+	_pass_scroll_input(panel)
 	return panel
+
+
+func _pass_scroll_input(control: Control) -> void:
+	if control is Button:
+		return
+	control.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in control.get_children():
+		if child is Control:
+			_pass_scroll_input(child)
 
 
 # What the result did to a player's coins: at a table for so many coins a point, what their
@@ -252,7 +279,7 @@ func _coins_for(row: Dictionary, finished: bool, winner_id: String) -> int:
 		return int(row.get("coins", 0))
 	if not finished or Game.stake() <= 0 or winner_id.is_empty():
 		return 0
-	return Game.pot() if str(row.get("id", "")) == winner_id else -Game.stake()
+	return Game.pot() if str(row.get("id", "")) == winner_id else -(Game.stake() + int(row.get("rejoinPaid", 0)))
 
 
 func _avatar_version(user_id: String) -> int:
@@ -341,10 +368,20 @@ func _build() -> void:
 		if heading[0] == "Total":
 			_total_heading = label
 
-	var scroll := ScrollContainer.new()
+	var scroll := preload("res://scenes/score_scroll.gd").new()
 	scroll.name = "ResultScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.scroll_deadzone = 6
+	var scrollbar := scroll.get_v_scroll_bar()
+	scrollbar.custom_minimum_size.x = 24
+	scrollbar.add_theme_stylebox_override("scroll", Ui.box(Color("ded1b2"), 10, 0, 0))
+	for state_name: String in ["grabber", "grabber_highlight", "grabber_pressed"]:
+		var thumb := Ui.box(Color("19a68b"), 10, 0, 0)
+		thumb.content_margin_top = 20
+		thumb.content_margin_bottom = 20
+		scrollbar.add_theme_stylebox_override(state_name, thumb)
 	column.add_child(scroll)
 	_rows = VBoxContainer.new()
 	_rows.name = "ResultRows"
@@ -389,6 +426,10 @@ func _build() -> void:
 	_again_button = _bar_button("PlayAgainButton", "Play Again")  # a new table, same rules, same players
 	_again_button.pressed.connect(Game.play_again)
 	_bar_row.add_child(_again_button)
+	_rejoin_button = _bar_button("RejoinButton", "Rejoin")
+	_rejoin_button.visible = false
+	_rejoin_button.pressed.connect(_confirm_rejoin)
+	_bar_row.add_child(_rejoin_button)
 
 	# This round's wild joker, in the corner
 	_wild = VBoxContainer.new()
@@ -437,6 +478,15 @@ func _bar_button(node_name: String, text: String) -> Button:
 	for color_name: String in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		button.add_theme_color_override(color_name, BUTTON_TEXT)
 	return button
+
+
+func _confirm_rejoin() -> void:
+	var offer: Variant = Game.state.get("rejoin")
+	if not offer is Dictionary:
+		return
+	var fee := int(offer.get("fee", 0))
+	var score := int(offer.get("score", 0))
+	Ui.confirm("Rejoin Close Joker", "Pay %s coins (50%% of the original entry) and rejoin at %d points?\nThe extra coins go into the prize pot. Confirm before the countdown ends." % [Ui.coins_text(fee), score], "Rejoin", Game.rejoin_game.bind(score))
 
 
 func _row_box() -> StyleBoxFlat:
@@ -675,18 +725,25 @@ class HandStrip extends Control:
 		resized.connect(_arrange)
 
 	func _arrange() -> void:
+		if size.x <= 0.0:
+			return # Wait for the container's first layout before sizing card text.
 		if _views.is_empty():
 			if _band != null:
 				_band.position = Vector2(0.0, size.y / 2.0 - 17.0)
 				_band.size = Vector2(size.x, 34.0)
 			return
 		var width := ScoreCard.CARD_WIDTH
+		var gap := GAP
 		var step := width * OVERLAP
 		var groups := _groups.size()
 		var steps := _views.size() - groups
 		var natural := groups * width + steps * step + (groups - 1) * GAP
-		if natural > size.x and steps > 0:
-			step = maxf(10.0, (size.x - groups * width - (groups - 1) * GAP) / steps)
+		if natural > size.x:
+			# Even thirteen ungrouped cards must fit without covering the points columns.
+			var factor := maxf(0.0, size.x) / natural
+			width *= factor
+			step *= factor
+			gap *= factor
 		var y := (size.y - CardView.height_for(width)) / 2.0
 		var x := 0.0
 		var index := 0
@@ -697,7 +754,7 @@ class HandStrip extends Control:
 				view.position = Vector2(x, y)
 				x += step if place < count - 1 else width
 				index += 1
-			x += GAP
+			x += gap
 		if _band != null:
 			_band.position = Vector2(0.0, size.y / 2.0 - 17.0)
-			_band.size = Vector2(x - GAP, 34.0)
+			_band.size = Vector2(x - gap, 34.0)

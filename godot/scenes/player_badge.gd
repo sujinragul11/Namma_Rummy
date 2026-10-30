@@ -1,5 +1,14 @@
 class_name PlayerBadge
 extends HBoxContainer
+signal profile_pressed
+
+var profile_clickable := false:
+	set(value):
+		profile_clickable = value
+		if _avatar != null:
+			_avatar.mouse_filter = Control.MOUSE_FILTER_STOP if value else Control.MOUSE_FILTER_IGNORE
+			_avatar.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if value else Control.CURSOR_ARROW
+			_avatar.tooltip_text = "View player profile" if value else ""
 ## A player's seat marker: a round avatar with the first letter of the name, the turn clock
 ## drawn as a ring around it, and two lines of text (name, and what the player is doing).
 ## The player on turn is lit up: a gold glow round the avatar, a glowing pill and a tag over it
@@ -77,6 +86,16 @@ func _init() -> void:
 	_avatar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_avatar.draw.connect(_draw_avatar)
+	# On the finger's release (a touch arrives as a mouse click too): the profile opened on the
+	# press would lie under the same finger, whose lift could press one of its buttons.
+	_avatar.gui_input.connect(func(event: InputEvent) -> void:
+		var click := event as InputEventMouseButton
+		if not profile_clickable or click == null or click.button_index != MOUSE_BUTTON_LEFT:
+			return
+		_avatar.accept_event()
+		if not click.pressed:
+			profile_pressed.emit()
+	)
 	add_child(_avatar)
 
 	var lines := VBoxContainer.new()

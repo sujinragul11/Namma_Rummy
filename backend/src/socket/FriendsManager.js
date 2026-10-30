@@ -56,7 +56,7 @@ class FriendsManager {
     // `avatar`: the profile photo's version, 0 for none
     const plain = (entry) => ({ id: String(entry.id), username: entry.username, avatar: photos.get(String(entry.id)) || 0 });
     return {
-      friends: lists.friends.map((friend) => ({ ...plain(friend), status: this.statusOf(String(friend.id)) })),
+      friends: lists.friends.map((friend) => ({ ...plain(friend), coins: Number(friend.coins) || 0, status: this.statusOf(String(friend.id)) })),
       incoming: lists.incoming.map(plain),
       outgoing: lists.outgoing.map(plain),
       recent: recent.map(plain),

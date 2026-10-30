@@ -20,6 +20,17 @@ A real-time multiplayer Rummy card game built with Node.js backend and React Nat
 
 ## Tech Stack
 
+### Close Joker rejoin
+
+After reaching 240 points or more, a player who stays at the table can tap **Rejoin** on the
+round scorecard before the between-round countdown ends. Each rejoin costs 50% of the table's
+original entry (free tables remain free), added to the winner's pot. The player returns next
+round with one point more than the highest score among players still in the match: for
+example, 130 and 144 means rejoining at 145. If this would be 240 or more, rejoining is not
+available. Leaving voluntarily does not qualify. The final remaining player is paid only
+after this decision window closes without a rejoin. Payment and the restored seat are saved
+together; insufficient coins leave both the balance and eliminated seat unchanged.
+
 ### Backend
 - **Node.js** with Express.js
 - **Socket.IO** for real-time communication

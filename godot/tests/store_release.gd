@@ -33,7 +33,7 @@ func _run() -> void:
 
 	# ---------- the login form ----------
 	_check("starts on the login form", _shown("AuthPanel") and not _shown("MenuPanel"))
-	_check("the Server field is only for developers", _shown("ServerRow") == (not Config.store_build))
+	_check("no build asks players for a server address", not _shown("ServerRow"))
 	_check("the privacy policy can be opened before signing up", _shown("PrivacyButton") and _shown("TermsButton"))
 	_check("nothing to delete while logged out", not _shown("DeleteAccountButton"))
 

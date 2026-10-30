@@ -97,6 +97,33 @@ class Coins {
     });
   }
 
+  // Charge and save the rejoined seat in one transaction: a crash can never leave a
+  // charged player eliminated, or give a free rejoin. The saved eliminated seat is
+  // also the idempotency check for duplicate requests from another phone.
+  static async rejoin(gameId, userId, fee, snapshot) {
+    return Coins.transaction(async (client) => {
+      const game = await client.query(`SELECT snapshot FROM games WHERE id = $1 FOR UPDATE`, [gameId]);
+      const previous = game.rows[0]?.snapshot;
+      const player = previous?.players?.find(([id]) => String(id) === String(userId))?.[1];
+      if (!previous || previous.status !== 'round_over' || previous.round !== snapshot.round ||
+          !player?.eliminated || player.left || player.totalScore < 240) {
+        throw new Error('This rejoin is no longer available. Refresh the table.');
+      }
+      let balance = null;
+      if (fee > 0) {
+        const entry = await client.query(
+          `UPDATE game_entries SET amount = amount + $3 WHERE game_id = $1 AND user_id = $2 RETURNING id`,
+          [gameId, userId, fee]
+        );
+        if (!entry.rowCount) throw new Error('Your table entry could not be found');
+        balance = await Coins.move(client, userId, gameId, 'rejoin', -fee);
+        if (balance === null) throw new Error(`You need ${format(fee)} coins to rejoin`);
+      }
+      await client.query(`UPDATE games SET snapshot = $2 WHERE id = $1`, [gameId, JSON.stringify(snapshot)]);
+      return balance;
+    });
+  }
+
   // The game is over: everything that was paid in goes to the winner. Returns the pot and the
   // winner's balance afterwards; a second call finds nothing left to pay.
   static async payWinner(gameId, winnerId) {

@@ -115,6 +115,10 @@ func _on_loaded() -> void:
 
 # The back button never throws the player out of a game without asking.
 func _on_back() -> void:
+	var scores := get_tree().get_first_node_in_group("score_board")
+	if scores != null:
+		scores.call("close")
+		return
 	if Ui.close_dialogs():
 		return
 	# A panel lying over the screen (the friends list) closes before the screen itself

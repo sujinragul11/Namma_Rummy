@@ -7,7 +7,7 @@ rem for your password. build-android.bat asks for the password and signs by itse
 rem The paths are the same as at the top of build-app.ps1.
 setlocal
 set "JDK=%LOCALAPPDATA%\Android\jdk-17"
-set "KEY=%USERPROFILE%\namma-rummy-keys\upload-key.jks"
+set "KEY=%USERPROFILE%\namma-rummy-keys\upload-key-new-20261024-095933.jks"
 set "BUILD=%~dp0build"
 
 if not exist "%JDK%\bin\jarsigner.exe" (

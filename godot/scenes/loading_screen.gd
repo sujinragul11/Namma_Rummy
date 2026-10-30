@@ -247,7 +247,7 @@ func _build_trouble() -> void:
 	_address_button.name = "ServerAddressButton"
 	_address_button.text = "Server address"
 	_address_button.custom_minimum_size = Vector2(200, 60)
-	_address_button.visible = not Config.store_build
+	_address_button.visible = false
 	_address_button.pressed.connect(_on_address_button)
 	buttons.add_child(_address_button)
 
@@ -324,19 +324,11 @@ func _explain_the_wait() -> void:
 	if _waited >= give_up or refused:
 		_show_trouble()
 	elif _waited >= SLOW_SECONDS and _pose == Pose.WAITING:
-		if Config.store_build:
-			_status.text = "Waking up the game server. This can take up to a minute..."
-		else:
-			_status.text = "Still connecting to %s..." % Game.server_url
+		_status.text = "Connecting to the game. This can take up to a minute..."
 
 
 func _show_trouble() -> void:
-	if Config.store_build:
-		_trouble_text.text = "Check that your phone is connected to the internet."
-	elif OS.has_feature("mobile"):
-		_trouble_text.text = "Nothing answers at %s.\nConnect this phone to the same Wi-Fi or hotspot as the PC that runs the game server, or change the address." % Game.server_url
-	else:
-		_trouble_text.text = "Nothing answers at %s.\nCheck that the game server is running (npm run dev in the backend folder)." % Game.server_url
+	_trouble_text.text = "Unable to connect. Check your internet connection and try again."
 	_address_row.visible = false
 	_trouble.reset_size()
 	_go_to(Pose.TROUBLE, 0.5)

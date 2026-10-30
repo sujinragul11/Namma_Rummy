@@ -550,6 +550,10 @@ func drop() -> Dictionary:
 	return await _ask("drop")
 
 
+func rejoin_game(score: int) -> Dictionary:
+	return await _ask("rejoinGame", {"score": score})
+
+
 func set_groups(new_groups: Array) -> void:
 	groups = new_groups.filter(func(group: Array) -> bool: return not group.is_empty())
 	_send_groups()

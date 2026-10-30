@@ -53,6 +53,7 @@ class GameEngine {
     this.winner = null;
     this.round = 0;
     this.lastResult = null;
+    this.scoreHistory = []; // Public scores only; retained across rounds and server restarts.
     this.stake = 0; // coins each player pays to sit down; 0 is a free table
     // Points rummy for so many coins a point: each loser pays the winner points x pointValue,
     // out of the stake they put down (80 points' worth). 0 when the winner takes the stakes.
@@ -100,6 +101,7 @@ class GameEngine {
       eliminated: false, // out for the rest of the match
       left: false,
       roundScore: 0,
+      wrongDeclaration: false,
       totalScore: 0,
       turnsTaken: 0,
       missedTurns: 0,
@@ -154,6 +156,8 @@ class GameEngine {
     }
 
     if (this.status === 'round_over' && this.getContenders().length <= 1) {
+      if (this.gameType === 'close_joker' &&
+          Array.from(this.players.keys()).some(id => this.rejoinOffer(id))) return null;
       const lastContender = this.getContenders()[0];
       this.status = 'finished';
       this.winner = lastContender ? lastContender.id : null;
@@ -187,7 +191,42 @@ class GameEngine {
       throw new Error('Round is still in progress');
     }
 
+    if (this.gameType === 'close_joker' && this.getContenders().length <= 1) {
+      this.status = 'finished';
+      this.winner = this.getContenders()[0]?.id || null;
+      this.nextRoundAt = null;
+      this.lastResult = { ...this.lastResult, matchOver: true, matchWinner: this.winner };
+      return this.lastResult;
+    }
     this.startRound();
+    return null;
+  }
+
+  rejoinOffer(userId, checkDeadline = true) {
+    const player = this.players.get(userId);
+    if (this.gameType !== 'close_joker' || this.status !== 'round_over' ||
+        !player || player.left || !player.eliminated || player.totalScore < 240 ||
+        (checkDeadline && (!this.nextRoundAt || Date.now() >= this.nextRoundAt))) return null;
+    const contenders = this.getContenders();
+    if (!contenders.length) return null;
+    const score = Math.max(...contenders.map(p => p.totalScore)) + 1;
+    if (score >= 240) return null;
+    return { fee: Math.ceil(this.stake / 2), score };
+  }
+
+  rejoin(userId) {
+    const offer = this.rejoinOffer(userId);
+    if (!offer) throw new Error('Rejoin is available only between rounds after reaching 240 points, while the new score is below 240');
+    const player = this.players.get(userId);
+    player.totalScore = offer.score;
+    player.eliminated = false;
+    player.rejoinPaid = (player.rejoinPaid || 0) + offer.fee;
+    player.rejoins = (player.rejoins || 0) + 1;
+    // Preserve the completed hand's result; the reset is a separate score adjustment.
+    this.scoreHistory.push({ type: 'rejoin', round: this.round, players: [{
+      id: userId, username: player.username, totalScore: offer.score, rejoinScore: offer.score
+    }] });
+    return offer;
   }
 
   startRound() {
@@ -204,6 +243,7 @@ class GameEngine {
       player.hand = [];
       player.groups = [];
       player.roundScore = 0;
+      player.wrongDeclaration = false;
       player.turnsTaken = 0;
       player.missedTurns = 0;
       player.lastDrawnId = null;
@@ -277,11 +317,14 @@ class GameEngine {
       // pays their points x pointValue out of it, so there is no pot.
       stake: this.stake,
       pointValue: this.pointValue,
-      pot: this.pointValue ? 0 : this.stake * this.players.size,
+      pot: this.pointValue ? 0 : this.stake * this.players.size +
+        Array.from(this.players.values()).reduce((sum, p) => sum + (p.rejoinPaid || 0), 0),
       private: this.isPrivate,
       round: this.round,
       winner: this.winner,
       lastResult: this.lastResult,
+      scoreHistory: this.scoreHistory,
+      rejoin: this.rejoinOffer(userId),
       // Only show own hand
       hand: me ? me.hand : [],
       groups: me ? me.groups : [],
@@ -298,6 +341,7 @@ class GameEngine {
         eliminated: player.eliminated,
         handCount: player.hand.length,
         totalScore: player.totalScore,
+        rejoinPaid: player.rejoinPaid || 0,
         chips: player.chips || 0,
         seenJoker: player.seenJoker,
         submitted: this.submitted.includes(playerId)
@@ -466,6 +510,7 @@ class GameEngine {
 
     // A wrong declaration costs the maximum and puts the player out of the round
     player.status = 'dropped';
+    player.wrongDeclaration = true;
     player.roundScore = WRONG_DECLARATION_POINTS;
     return { valid: false, roundResult: this.afterPlayerOut(player) };
   }
@@ -589,6 +634,7 @@ class GameEngine {
 
       let outcome = 'lost';
       if (playerId === winnerId) outcome = 'winner';
+      else if (player.wrongDeclaration) outcome = 'wrong_declaration';
       else if (player.status === 'dropped') outcome = 'dropped';
 
       return {
@@ -597,6 +643,7 @@ class GameEngine {
         outcome,
         points: player.roundScore,
         totalScore: player.totalScore,
+        rejoinPaid: player.rejoinPaid || 0,
         melds: evaluation.melds
       };
     });
@@ -638,6 +685,13 @@ class GameEngine {
       matchOver,
       matchWinner
     };
+    this.scoreHistory.push({
+      round: this.round,
+      players: results.map(({ id, username, points, totalScore, chips, chipsWon }) => ({
+        id, username, points, totalScore,
+        ...(chips === undefined ? {} : { chips, chipsWon })
+      }))
+    });
 
     this.currentPlayer = null;
     this.turnDeadline = null;
@@ -646,6 +700,19 @@ class GameEngine {
     if (matchOver) {
       this.status = 'finished';
       this.winner = matchWinner;
+      // Give the last eliminated players the same between-round rejoin window,
+      // before the match is settled and its pot paid out.
+      if (this.gameType === 'close_joker') {
+        this.status = 'round_over';
+        if (Array.from(this.players.keys()).some(id => this.rejoinOffer(id, false))) {
+          this.winner = null;
+          this.lastResult.matchOver = false;
+          this.lastResult.matchWinner = null;
+          this.nextRoundAt = Date.now() + NEXT_ROUND_DELAY_MS;
+        } else {
+          this.status = 'finished';
+        }
+      }
     } else {
       this.status = 'round_over';
       this.nextRoundAt = Date.now() + NEXT_ROUND_DELAY_MS;
@@ -735,6 +802,7 @@ class GameEngine {
       winner: this.winner,
       round: this.round,
       lastResult: this.lastResult,
+      scoreHistory: this.scoreHistory,
       stake: this.stake,
       pointValue: this.pointValue,
       isPrivate: this.isPrivate,
