@@ -1,6 +1,6 @@
 # Render Blueprint: the game server and its database on render.com.
 # In the Render dashboard choose New > Blueprint, pick this repository, and Render creates
-# both from this file. Render asks for the two values marked "sync: false".
+# both from this file. Render asks for the values marked "sync: false".
 #
 # What is NOT here: Redis (games in progress are kept in the database, so none is needed)
 # and a custom domain (the service gets https://<name>.onrender.com by itself; a domain
@@ -32,9 +32,8 @@ services:
       - key: SUPPORT_EMAIL
         sync: false            # an address players can write to (privacy policy)
       - key: DATABASE_URL
-        fromDatabase:
-          name: namma-rummy-db
-          property: connectionString
+        sync: false            # the Neon database's address, typed in the dashboard (Neon > Connect,
+                               # connection pooling off). Render no longer holds the database
 
 databases:
   - name: namma-rummy-db

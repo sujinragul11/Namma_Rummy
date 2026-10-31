@@ -29,7 +29,7 @@ const pool = new Pool({
   ...connection,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // a Neon database asleep after a quiet spell takes a moment to wake
 });
 
 pool.on('connect', () => {
