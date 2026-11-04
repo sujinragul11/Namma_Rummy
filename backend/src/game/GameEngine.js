@@ -7,6 +7,7 @@ const MIDDLE_DROP_POINTS = 40;
 const WRONG_DECLARATION_POINTS = 80;
 const MAX_LOSS_POINTS = 80; // no hand and no penalty costs more
 const MAX_MISSED_TURNS = 3; // consecutive timeouts before a player is dropped
+const MAX_REJOINS = 3; // Close Joker: how often one player may rejoin the same game
 const NEXT_ROUND_DELAY_MS = (parseFloat(process.env.NEXT_ROUND_SECONDS) || 12) * 1000;
 // Deals Rummy: every player starts with this many chips for each deal to be played, the most
 // a hand can cost (80), so nobody runs out before the last deal
@@ -156,8 +157,6 @@ class GameEngine {
     }
 
     if (this.status === 'round_over' && this.getContenders().length <= 1) {
-      if (this.gameType === 'close_joker' &&
-          Array.from(this.players.keys()).some(id => this.rejoinOffer(id))) return null;
       const lastContender = this.getContenders()[0];
       this.status = 'finished';
       this.winner = lastContender ? lastContender.id : null;
@@ -191,6 +190,8 @@ class GameEngine {
       throw new Error('Round is still in progress');
     }
 
+    // Only a game saved by an older server, which held the last player's win open for
+    // rejoins, gets here: with one player left the match is over
     if (this.gameType === 'close_joker' && this.getContenders().length <= 1) {
       this.status = 'finished';
       this.winner = this.getContenders()[0]?.id || null;
@@ -202,13 +203,16 @@ class GameEngine {
     return null;
   }
 
-  rejoinOffer(userId, checkDeadline = true) {
+  // Close Joker, between rounds: a player out on 240 can buy back in, at most MAX_REJOINS
+  // times a game, and only while at least two players are still in the match
+  rejoinOffer(userId) {
     const player = this.players.get(userId);
     if (this.gameType !== 'close_joker' || this.status !== 'round_over' ||
         !player || player.left || !player.eliminated || player.totalScore < 240 ||
-        (checkDeadline && (!this.nextRoundAt || Date.now() >= this.nextRoundAt))) return null;
+        (player.rejoins || 0) >= MAX_REJOINS ||
+        !this.nextRoundAt || Date.now() >= this.nextRoundAt) return null;
     const contenders = this.getContenders();
-    if (!contenders.length) return null;
+    if (contenders.length < 2) return null;
     const score = Math.max(...contenders.map(p => p.totalScore)) + 1;
     if (score >= 240) return null;
     return { fee: Math.ceil(this.stake / 2), score };
@@ -700,19 +704,6 @@ class GameEngine {
     if (matchOver) {
       this.status = 'finished';
       this.winner = matchWinner;
-      // Give the last eliminated players the same between-round rejoin window,
-      // before the match is settled and its pot paid out.
-      if (this.gameType === 'close_joker') {
-        this.status = 'round_over';
-        if (Array.from(this.players.keys()).some(id => this.rejoinOffer(id, false))) {
-          this.winner = null;
-          this.lastResult.matchOver = false;
-          this.lastResult.matchWinner = null;
-          this.nextRoundAt = Date.now() + NEXT_ROUND_DELAY_MS;
-        } else {
-          this.status = 'finished';
-        }
-      }
     } else {
       this.status = 'round_over';
       this.nextRoundAt = Date.now() + NEXT_ROUND_DELAY_MS;

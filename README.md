@@ -27,9 +27,11 @@ round scorecard before the between-round countdown ends. Each rejoin costs 50% o
 original entry (free tables remain free), added to the winner's pot. The player returns next
 round with one point more than the highest score among players still in the match: for
 example, 130 and 144 means rejoining at 145. If this would be 240 or more, rejoining is not
-available. Leaving voluntarily does not qualify. The final remaining player is paid only
-after this decision window closes without a rejoin. Payment and the restored seat are saved
-together; insufficient coins leave both the balance and eliminated seat unchanged.
+available. Leaving voluntarily does not qualify. Rejoining needs at least two players still
+in the match: when a round leaves only one, that player has won and is paid at once, and
+nobody can rejoin. Each player can rejoin the same game at most 3 times. Payment and the
+restored seat are saved together; insufficient coins leave both the balance and eliminated
+seat unchanged.
 
 ### Backend
 - **Node.js** with Express.js
