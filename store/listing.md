@@ -15,6 +15,7 @@ The game server runs at `https://namma-rummy.onrender.com` (Render; see `render.
 | Privacy policy | `https://namma-rummy.onrender.com/privacy` |
 | Terms of use | `https://namma-rummy.onrender.com/terms` |
 | Account deletion | `https://namma-rummy.onrender.com/delete-account` |
+| app-ads.txt (AdMob) | `https://namma-rummy.onrender.com/app-ads.txt`, served by `backend/src/server.js`; AdMob only finds it when the Website above is the developer website in Play Console |
 
 The package name cannot be changed after the first upload. To use another one, change it in
 `godot/export_presets.cfg` (three places) before you upload anything.

@@ -523,7 +523,12 @@ app.post('/api/bonus/daily/spin', authenticateToken, async (req, res) => {
   }
 });
 
+// Ad networks allowed to sell the app's ad space (IAB app-ads.txt). AdMob reads it from
+// the root of the developer website named on Google Play and the App Store.
+const APP_ADS_TXT = 'google.com, pub-1137151357132919, DIRECT, f08c47fec0942fa0\n';
+
 // Web pages: what the store listings link to
+app.get('/app-ads.txt', (req, res) => res.type('text/plain').send(APP_ADS_TXT));
 app.get('/', (req, res) => res.send(pages.home()));
 app.get('/privacy', (req, res) => res.send(pages.privacy()));
 app.get('/terms', (req, res) => res.send(pages.terms()));
