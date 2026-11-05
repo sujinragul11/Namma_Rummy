@@ -2,6 +2,7 @@ const db = require('./db');
 const Coins = require('../models/Coins');
 const Avatar = require('../models/Avatar');
 const DailyBonus = require('../models/DailyBonus');
+const AdReward = require('../models/AdReward');
 const Session = require('../models/Session');
 
 const createTables = async () => {
@@ -121,6 +122,9 @@ const createTables = async () => {
 
     // When each player last spun the daily bonus wheel; the server also does this at every start
     await DailyBonus.ensureSchema();
+
+    // Free coins for watching ads: how far each player is; the server also does this at every start
+    await AdReward.ensureSchema();
 
     // Logins, which last until the player logs out; the server also does this at every start
     await Session.ensureSchema();

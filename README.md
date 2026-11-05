@@ -350,6 +350,12 @@ godot --headless --path . res://tests/phone_tour.tscn -- --profile=phonetour --s
 # needs the normal 12 s break between rounds, so not a server started with NEXT_ROUND_SECONDS)
 godot --headless --path . res://tests/ads_policy.tscn -- --profile=adstest --server=http://127.0.0.1:3101
 
+# Free coins for watching ads: the pill, the box, stand-in videos counted by the server, collecting,
+# the day's limit and a new day (about two minutes). Its test backend's day lasts a minute:
+#   set AD_REWARD_DAY_SECONDS=60
+#   node tests/test_server.js --fresh --port=3101 --db=My_Rummy_test
+godot --headless --path . res://tests/reward_tour.tscn -- --profile=rewardtour --server=http://127.0.0.1:3101 --mute
+
 # Play Now: tiles, setup boxes, the search box and matched tables, through the real screens with two
 # screenless players. Start its test backend with short waits first:
 #   MATCH_REGION_SECONDS=2 MATCH_NEARBY_SECONDS=4 MATCH_FILL_SECONDS=3 NEXT_ROUND_SECONDS=2 node tests/test_server.js --fresh --port=3101 --db=My_Rummy_test
@@ -685,19 +691,27 @@ every 90 seconds, and only when an ad has already been downloaded, so nobody wai
 Players in the EEA, the UK and Switzerland first see Google's consent form, and Settings offers
 "Privacy choices for ads" where the law requires it.
 
+Players who want more coins can also watch videos (AdMob "rewarded" ads) in the **Free Coins**
+box, which opens from the pill right of the Daily Bonus. Two videos fill a reward of 1,000
+coins, which the player then collects; five rewards a day, and the day turns at midnight India
+time. A video plays only when the player taps "Watch video". The app reports each video watched
+to the server, which counts them, pays the coins and keeps the daily limit
+(`backend/src/models/AdReward.js`; the numbers are at its top). A player who fakes the reports
+gets no more than one who watches every video. `godot/tests/reward_tour` checks it all.
+
 Test builds (`build-android.bat debug`) show Google's test ads. Store builds show no ads until
 you fill in your own AdMob ids:
 
-1. Create an AdMob account, add the app (Android, package `app.nammarummy.com`) and create one
-   "Interstitial" ad unit.
+1. Create an AdMob account, add the app (Android, package `app.nammarummy.com`) and create two
+   ad units: one "Interstitial" and one "Rewarded".
 2. Put the app's App ID (it contains `~`) into `godot/project.godot`:
    ```
    [admob]
 
    general/android/app_id="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"
    ```
-3. Put the ad unit ID (it contains `/`) into `RELEASE_INTERSTITIAL_ID` in
-   `godot/autoload/config.gd`.
+3. Put the ad unit IDs (they contain `/`) into `godot/autoload/config.gd`: the interstitial one
+   into `RELEASE_INTERSTITIAL_ID`, the rewarded one into `RELEASE_REWARDED_ID`.
 4. In Play Console answer "Contains ads" with Yes and fill in Data safety as `store/listing.md`
    describes.
 

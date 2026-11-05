@@ -5,7 +5,8 @@ extends Control
 ## Logged in: the menu, laid out like a card-game lobby. The player and the coins sit in a bar
 ## at the top with a few round buttons, big tiles in the middle open the kinds of game, and
 ## a bar of small buttons runs along the bottom. Beside the coins, the Daily Bonus pill opens
-## the wheel that can be spun once every 24 hours, and counts down to the next spin. A game tile opens a box to set up the table;
+## the wheel that can be spun once every 24 hours, and counts down to the next spin; right of
+## it, the Free Coins pill opens the box where watching short videos earns coins. A game tile opens a box to set up the table;
 ## the friends tile opens the room-code form.
 ##
 ## Points Rummy is not on the menu (since 2026-10-14 the big tile is Close Joker). It stays in
@@ -43,6 +44,7 @@ const YELLOW_BUTTON := Color("f2c21b")
 const WRONG_LOGIN_MESSAGE := "That mobile number or username and password do not match an account.\n\nNew here? Use \"Don't have an account? Register\". Forgotten your password? Use \"Forgot password?\"."
 const ROUND_BUTTON := 52.0
 const BONUS_PILL := Vector2(226, 60)
+const FREE_COINS_PILL := Vector2(226, 60)
 const AVATAR_RING := 3.0
 const RULES := """Every player gets 13 cards. On your turn, draw a card from the deck or the open pile, then discard one.
 
@@ -82,6 +84,9 @@ var _settings: SettingsBox  # behind the cog: sound, the privacy policy and term
 var _bonus_box: DailyBonusBox  # the daily bonus wheel
 var _bonus_button: Button  # the pill beside the coins that opens it
 var _bonus_ready_shown := false  # whether the pill is dressed as "a spin is waiting"
+var _free_coins_box: AdRewardBox  # free coins for watching ads
+var _free_coins_button: Button  # the pill right of the daily bonus that opens it
+var _free_coins_ready_shown := false  # whether the pill is dressed as "coins to collect"
 var _coins_label: CoinLabel
 var _stake_coins: CoinLabel  # the amount in the pill above the slider
 var _player_chips: Array[ChoiceChip] = []  # one per PLAYER_CHOICES entry
@@ -238,6 +243,11 @@ func _ready() -> void:
 	_bonus_button.pressed.connect(_open_bonus)
 	Game.bonus_changed.connect(_dress_bonus_button)
 	_dress_bonus_button()
+	_free_coins_box = AdRewardBox.new()
+	add_child(_free_coins_box)
+	_free_coins_button.pressed.connect(_open_free_coins)
+	Game.ad_reward_changed.connect(_dress_free_coins_button)
+	_dress_free_coins_button()
 	# The top bar shows the player's photo once it is here, and a new one as soon as it is saved
 	Game.avatar_loaded.connect(func(user_id: String) -> void:
 		if user_id == Game.player_id:
@@ -272,6 +282,17 @@ func _build_top_bar() -> void:
 	_bonus_button.draw.connect(_draw_bonus_pill)
 	_coin_pill.get_parent().add_child(_bonus_button)
 	_coin_pill.get_parent().move_child(_bonus_button, _coin_pill.get_index() + 1)
+
+	# Free coins for watching ads, right of the daily bonus: a play sign and what to do next
+	_free_coins_button = Button.new()
+	_free_coins_button.name = "FreeCoinsButton"
+	_free_coins_button.custom_minimum_size = FREE_COINS_PILL
+	_free_coins_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_free_coins_button.focus_mode = Control.FOCUS_NONE
+	_free_coins_button.tooltip_text = "Free coins"
+	_free_coins_button.draw.connect(_draw_free_coins_pill)
+	_coin_pill.get_parent().add_child(_free_coins_button)
+	_coin_pill.get_parent().move_child(_free_coins_button, _bonus_button.get_index() + 1)
 
 
 # The setup box the way a card-game lobby does it: round marks to pick the players and the
@@ -474,6 +495,11 @@ func _process(delta: float) -> void:
 		if Game.bonus_available() != _bonus_ready_shown:
 			_dress_bonus_button()
 		_bonus_button.queue_redraw()
+	# and the Free Coins pill beside it beats while coins wait to be collected
+	if _free_coins_button.is_visible_in_tree():
+		if Game.ad_reward_ready() != _free_coins_ready_shown:
+			_dress_free_coins_button()
+		_free_coins_button.queue_redraw()
 
 	# The SMS code: another one may be asked for once its countdown has run out
 	if _resend_button.is_visible_in_tree():
@@ -915,6 +941,23 @@ func _open_bonus() -> void:
 	_bonus_box.open()
 
 
+func _open_free_coins() -> void:
+	_join_overlay.close()  # one box at a time
+	_free_coins_box.open()
+
+
+# A gold edge on the pill while coins wait to be collected, like the daily bonus pill.
+func _dress_free_coins_button() -> void:
+	_free_coins_ready_shown = Game.ad_reward_ready()
+	for state_name: String in ["normal", "hover", "pressed"]:
+		var pill := Ui.box(Color(0, 0, 0, 0.5 if state_name == "hover" else 0.36), 30, 14, 6)
+		if _free_coins_ready_shown:
+			pill.border_color = Ui.GOLD
+			pill.set_border_width_all(2)
+		_free_coins_button.add_theme_stylebox_override(state_name, pill)
+	_free_coins_button.queue_redraw()
+
+
 # A gold edge on the pill while a spin is waiting, the dark glass of the other pills otherwise.
 func _dress_bonus_button() -> void:
 	_bonus_ready_shown = Game.bonus_available()
@@ -1008,6 +1051,35 @@ func _draw_bonus_pill() -> void:
 	button.draw_string(font, Vector2(left, height / 2.0 + 21.0), line, HORIZONTAL_ALIGNMENT_LEFT, width, 23, Ui.GOLD if spin_waits else Color.WHITE)
 	if spin_waits:
 		var beat := 0.5 + 0.5 * sin(_float_time * 5.0)
+		button.draw_circle(Vector2(button.size.x - 9.0, 9.0), 7.0 + beat * 1.5, Ui.RED, true, -1.0, true)
+
+
+# The Free Coins pill: a red video sign with a white play triangle, then two lines: what to do
+# next, or the time until new videos once today's are used up. While coins wait to be
+# collected the sign beats and a red dot sits on the corner, as on the daily bonus pill.
+func _draw_free_coins_pill() -> void:
+	var button := _free_coins_button
+	var collect := Game.ad_reward_ready()
+	var height := button.size.y
+	var beat := 0.5 + 0.5 * sin(_float_time * 5.0) if collect else 0.0
+	var icon := Rect2(Vector2(14.0, height / 2.0 - 15.0), Vector2(42.0, 30.0)).grow(beat * 1.5)
+	button.draw_style_box(Ui.box(Ui.RED, 8, 0, 0), icon)
+	var middle := icon.get_center() + Vector2(1.5, 0.0)
+	button.draw_colored_polygon(PackedVector2Array([middle + Vector2(-6, -8), middle + Vector2(-6, 8), middle + Vector2(8, 0)]), Color.WHITE)
+
+	var font := Ui.bold_font
+	var left := icon.end.x + 12.0
+	var width := button.size.x - left - 10.0
+	button.draw_string(font, Vector2(left, height / 2.0 - 5.0), "FREE COINS", HORIZONTAL_ALIGNMENT_LEFT, width, 15, Color(1, 1, 1, 0.75))
+	var line := "..."
+	if collect:
+		line = "COLLECT!"
+	elif not Game.ad_reward.is_empty() and Game.ad_rewards_left() == 0:
+		line = GameClient.countdown_text(Game.ad_reward_wait())
+	elif not Game.ad_reward.is_empty():
+		line = "WATCH ADS"
+	button.draw_string(font, Vector2(left, height / 2.0 + 21.0), line, HORIZONTAL_ALIGNMENT_LEFT, width, 23, Ui.GOLD if collect else Color.WHITE)
+	if collect:
 		button.draw_circle(Vector2(button.size.x - 9.0, 9.0), 7.0 + beat * 1.5, Ui.RED, true, -1.0, true)
 
 

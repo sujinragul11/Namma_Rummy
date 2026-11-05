@@ -12,6 +12,7 @@ const User = require('./models/User');
 const Game = require('./models/Game');
 const Avatar = require('./models/Avatar');
 const DailyBonus = require('./models/DailyBonus');
+const AdReward = require('./models/AdReward');
 const Session = require('./models/Session');
 const SocketManager = require('./socket/SocketManager');
 const PhoneVerification = require('./sms/PhoneVerification');
@@ -519,6 +520,52 @@ app.post('/api/bonus/daily/spin', authenticateToken, async (req, res) => {
     }
     if (error.notFound) return res.status(404).json({ error: 'User not found' });
     console.error('Daily bonus spin error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Free coins for watching ads: a few videos fill a reward the player then collects, a few
+// times a day. The app reports each video watched; the server counts, pays and keeps the
+// daily limit. See models/AdReward.js.
+const adRewardRefused = (res, error) => {
+  if (error.notFound) return res.status(404).json({ error: 'User not found' });
+  res.status(error.limitReached ? 429 : 409).json({ error: error.message, ...error.status });
+};
+
+app.get('/api/rewards/ads', authenticateToken, async (req, res) => {
+  try {
+    res.json(await AdReward.status(req.user.id));
+  } catch (error) {
+    console.error('Ad reward status error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/rewards/ads/watched', authenticateToken, async (req, res) => {
+  const userId = String(req.user.id);
+  try {
+    const status = await AdReward.watched(req.user.id);
+    socketManager.adRewardChanged(userId, status); // the player's other phones count along
+    res.json(status);
+  } catch (error) {
+    if (error.forPlayer) return adRewardRefused(res, error);
+    console.error('Ad watched error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/rewards/ads/collect', authenticateToken, async (req, res) => {
+  const userId = String(req.user.id);
+  try {
+    const result = await AdReward.collect(req.user.id);
+    socketManager.sendCoins(userId, result.coins);
+    const { prize, coins, ...status } = result;
+    socketManager.adRewardChanged(userId, status);
+    console.log(`📺 Ad reward: user ${userId} collected ${prize} coins`);
+    res.json(result);
+  } catch (error) {
+    if (error.forPlayer) return adRewardRefused(res, error);
+    console.error('Ad reward collect error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

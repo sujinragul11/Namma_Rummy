@@ -3,7 +3,7 @@ const config = require('./config');
 // The web pages the app stores ask for: privacy policy, terms, and a way to delete an
 // account without installing the app. They are plain HTML without scripts.
 
-const UPDATED = '18 October 2026';
+const UPDATED = '5 November 2026';
 
 const escapeHtml = (text) => String(text)
   .replace(/&/g, '&amp;')
@@ -79,7 +79,8 @@ and what you can do about it.</p>
   <li><strong>Game records:</strong> the games you played, your seat, your final cards, your
   score and whether you won. Other players at your table see your username and your play.</li>
   <li><strong>Play coins:</strong> your balance of coins, and the coins you paid in, got back
-  or won at each table. Coins are tokens of the game and have nothing to do with money.</li>
+  or won at each table, and how many videos you watched today for free coins. Coins are tokens
+  of the game and have nothing to do with money.</li>
   <li><strong>Friends:</strong> the players you add as friends inside the app and the friend
   requests you send or receive. This is not your phone's contact list, which the app never
   reads. Players you have accepted as friends can see whether you are online or in a game.</li>
@@ -97,8 +98,10 @@ photo. It contains no third-party analytics.</p>
 
 <h2>Ads</h2>
 <p>The Android app shows full-screen ads at a few moments: before you sit down at a table,
-in the break between rounds, and after a game. The ads come from Google AdMob, a service of
-Google. To choose and count ads, Google's software in the app collects from your device:
+in the break between rounds, and after a game. You can also choose to watch short videos
+(ads) under <em>Free Coins</em> on the menu to earn play coins; one plays only when you tap
+<em>Watch video</em>. The ads come from Google AdMob, a service of Google. To choose and count
+ads, Google's software in the app collects from your device:
 its advertising ID, your IP address (from which an approximate location can be worked out),
 information about the device and the app, and how you interact with the ads. Google
 receives this directly and uses it as described in
@@ -163,7 +166,8 @@ purchases and no prizes, and nothing in it can be exchanged for money or goods. 
 and the Android app shows ads from Google AdMob (see the privacy policy).</p>
 
 <h2>Play coins</h2>
-<p>Every account gets play coins for free. A table can have an entry in coins, which each
+<p>Every account gets play coins for free, and watching the short videos under <em>Free
+Coins</em> earns more, up to a daily limit. A table can have an entry in coins, which each
 player pays on sitting down; the winner of the game takes the coins that were paid in. A
 Points table can instead be played for coins a point: each loser pays the winner their points
 times that value, out of coins held while the game is played. Coins

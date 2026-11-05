@@ -33,6 +33,13 @@ signal bonus_changed
 signal bonus_spun(index: int, prize: int)
 ## Our spin was refused (the 24 hours are not over) or did not reach the server.
 signal bonus_failed(message: String)
+## Our free coins for watching ads changed: a video counted, coins collected, a new day (see
+## `ad_reward`).
+signal ad_reward_changed
+## We collected the coins for watching videos: `prize` coins, already in `coins`.
+signal ad_reward_collected(prize: int)
+## A video was not counted or the coins were not paid; the message says why.
+signal ad_reward_failed(message: String)
 ## A player at our table (ourselves included) wrote something or sent an emoji; it is also the
 ## last entry of chat_log now.
 signal chat_received(message: Dictionary)
@@ -127,6 +134,13 @@ var match_starts_at := 0
 var bonus: Dictionary = {}
 ## When the wheel opens again, as a Time.get_ticks_msec() value; 0 while it is open or unknown.
 var bonus_ready_at := 0
+## Free coins for watching ads as the server last described them: {"adsPerReward" (videos for
+## one reward), "reward" (its coins), "dailyLimit" (rewards a day), "watched" (videos towards
+## the next reward), "collected" (rewards today), "resetsIn" (msec until the day turns)}.
+## Empty until fetched. The server counts the videos and pays; the app reports each one.
+var ad_reward: Dictionary = {}
+## When the day of rewards turns, as a Time.get_ticks_msec() value; 0 while unknown.
+var ad_reward_resets_at := 0
 ## What has been said at our table, oldest first; empty when not at a table. Each entry:
 ## {"id", "userId", "username", "kind": "text" or "emoji", "text" or "emoji", "at"}.
 var chat_log: Array = []
@@ -149,6 +163,11 @@ var _avatar_fetches := 0  # how many are on their way
 var _bonus_fetching := false
 var _bonus_spinning := false
 var _bonus_retry_at := 0  # no new question about the wheel before this (ticks)
+var _ad_reward_fetching := false
+var _ad_reward_collecting := false
+var _ad_reward_retry_at := 0  # the same for the free coins when their day has turned
+var _ads_unreported := 0  # videos watched whose report has not reached the server yet
+var _ads_reporting := false
 
 
 func _ready() -> void:
@@ -174,12 +193,17 @@ func _process(_delta: float) -> void:
 	if bonus_ready_at > 0 and now >= bonus_ready_at and now >= _bonus_retry_at and not _bonus_fetching and is_logged_in():
 		_bonus_retry_at = now + BONUS_RETRY_MSEC
 		fetch_bonus()
+	# So has the day of the free coins for watching ads
+	if ad_reward_resets_at > 0 and now >= ad_reward_resets_at and now >= _ad_reward_retry_at and not _ad_reward_fetching and is_logged_in():
+		_ad_reward_retry_at = now + BONUS_RETRY_MSEC
+		fetch_ad_reward()
 
 
 func _notification(what: int) -> void:
 	# A phone's tick clock stands still while it sleeps, so the countdown is behind: ask again
 	if what == NOTIFICATION_APPLICATION_RESUMED and is_logged_in():
 		fetch_bonus()
+		fetch_ad_reward()
 
 
 # ---------- account ----------
@@ -288,6 +312,7 @@ func _forget_login() -> void:
 	_forget_game()
 	_forget_friends()
 	_forget_bonus()
+	_forget_ad_reward()
 	if remember_login:
 		Config.clear_login()
 	auth_changed.emit()
@@ -825,6 +850,121 @@ func _forget_bonus() -> void:
 	bonus_changed.emit()
 
 
+# ---------- free coins for watching ads ----------
+
+## Videos still to watch for the next reward; 0 when its coins are ready to collect.
+func ads_to_watch() -> int:
+	return maxi(0, int(ad_reward.get("adsPerReward", 0)) - int(ad_reward.get("watched", 0)))
+
+
+## Rewards that may still be collected today.
+func ad_rewards_left() -> int:
+	return maxi(0, int(ad_reward.get("dailyLimit", 0)) - int(ad_reward.get("collected", 0)))
+
+
+## True when every video of a reward has been watched and its coins wait to be collected.
+func ad_reward_ready() -> bool:
+	return not ad_reward.is_empty() and ads_to_watch() == 0 and ad_rewards_left() > 0
+
+
+## Milliseconds until the day of rewards turns; 0 while not known.
+func ad_reward_wait() -> int:
+	return maxi(0, ad_reward_resets_at - Time.get_ticks_msec()) if ad_reward_resets_at > 0 else 0
+
+
+## True while a collect is on its way to the server.
+func ad_reward_collecting() -> bool:
+	return _ad_reward_collecting
+
+
+## True while a video watched has not been counted by the server yet.
+func ad_reports_pending() -> bool:
+	return _ads_unreported > 0
+
+
+## Asks the server where the free coins stand. The answer comes as ad_reward_changed.
+func fetch_ad_reward() -> void:
+	if _ad_reward_fetching or not is_logged_in():
+		return
+	_ad_reward_fetching = true
+	var asked_with := token
+	var response: Dictionary = await _http(HTTPClient.METHOD_GET, "/api/rewards/ads")
+	_ad_reward_fetching = false
+	if response.ok and token == asked_with:  # not for an account logged out meanwhile
+		_apply_ad_reward(response.data)
+
+
+## A video for free coins has been watched (Ads.reward_earned). The server counts it; a report
+## that does not reach it is sent again once the connection is back.
+func report_ad_watched() -> void:
+	if not is_logged_in():
+		return
+	_ads_unreported += 1
+	_send_ad_reports()
+
+
+## Collects the coins once the videos of a reward have been watched. The answer comes as
+## ad_reward_collected (with the new balance already in `coins`) or ad_reward_failed.
+func collect_ad_reward() -> void:
+	if _ad_reward_collecting or not is_logged_in():
+		return
+	_ad_reward_collecting = true
+	var asked_with := token
+	var response: Dictionary = await _http(HTTPClient.METHOD_POST, "/api/rewards/ads/collect")
+	_ad_reward_collecting = false
+	if token != asked_with:
+		return
+	var data: Dictionary = response.data
+	if data.has("watched"):  # a refusal says where things stand as well
+		_apply_ad_reward(data)
+	if response.ok:
+		coins = int(data.get("coins", coins))
+		coins_changed.emit()
+		ad_reward_collected.emit(int(data.get("prize", 0)))
+	else:
+		ad_reward_failed.emit(response.error)
+
+
+# One report at a time, in order, until none is left or the server cannot be reached.
+func _send_ad_reports() -> void:
+	if _ads_reporting or not is_logged_in():
+		return
+	_ads_reporting = true
+	var asked_with := token
+	while _ads_unreported > 0 and token == asked_with:
+		var response: Dictionary = await _http(HTTPClient.METHOD_POST, "/api/rewards/ads/watched")
+		if token != asked_with:
+			break
+		if not response.ok and (response.data as Dictionary).is_empty():
+			break  # the server was not reached: _on_connected sends it again
+		_ads_unreported -= 1
+		if (response.data as Dictionary).has("watched"):
+			_apply_ad_reward(response.data)
+		if not response.ok:
+			ad_reward_failed.emit(response.error)
+	_ads_reporting = false
+
+
+# What the server says about the free coins, from an answer or from the "adReward" event;
+# only the parts it sends change.
+func _apply_ad_reward(data: Dictionary) -> void:
+	for key: String in ["adsPerReward", "reward", "dailyLimit", "watched", "collected", "resetsIn"]:
+		if data.has(key):
+			ad_reward[key] = data[key]
+	if data.has("resetsIn"):
+		ad_reward_resets_at = Time.get_ticks_msec() + maxi(1, int(data.resetsIn))
+		_ad_reward_retry_at = 0
+	ad_reward_changed.emit()
+
+
+func _forget_ad_reward() -> void:
+	ad_reward = {}
+	ad_reward_resets_at = 0
+	_ad_reward_retry_at = 0
+	_ads_unreported = 0
+	ad_reward_changed.emit()
+
+
 # ---------- friends ----------
 
 ## Asks a player to be our friend. If they had already asked us, this accepts.
@@ -1097,6 +1237,9 @@ func _on_connected() -> void:
 	connection_changed.emit()
 	# Where the daily bonus stands: it may have been spun on another phone meanwhile
 	fetch_bonus()
+	# The same for the free coins, and a video watched while the line was down counts now
+	fetch_ad_reward()
+	_send_ad_reports()
 	_fetch_chat_blocks()  # whom we blocked in the chat, perhaps on another phone
 	# The server puts us back at our table by itself. Ask all the same: if the table no longer
 	# exists we must hear it now, not when the next move is refused.
@@ -1163,6 +1306,8 @@ func _on_event(event_name: String, payload: Variant) -> void:
 			coins_changed.emit()
 		"dailyBonus":
 			_apply_bonus(payload)
+		"adReward":
+			_apply_ad_reward(payload)
 		"friendsState":
 			_apply_friends(payload)
 		"gameInvite":

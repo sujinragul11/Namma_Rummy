@@ -5,6 +5,7 @@ const User = require('../models/User');
 const Coins = require('../models/Coins');
 const Avatar = require('../models/Avatar');
 const DailyBonus = require('../models/DailyBonus');
+const AdReward = require('../models/AdReward');
 const Session = require('../models/Session');
 const db = require('../database/db');
 const { FriendsManager, WatchedMap } = require('./FriendsManager');
@@ -108,6 +109,11 @@ class SocketManager {
       await DailyBonus.ensureSchema();
     } catch (error) {
       console.error('Failed to prepare the database for the daily bonus:', error.message);
+    }
+    try {
+      await AdReward.ensureSchema();
+    } catch (error) {
+      console.error('Failed to prepare the database for free coins for ads:', error.message);
     }
     try {
       await Session.ensureSchema();
@@ -258,6 +264,11 @@ class SocketManager {
   // Tells every phone a player is on where their daily bonus stands: { available, nextSpinIn }
   bonusChanged(userId, status) {
     this.io.to(this.userRoom(userId)).emit('dailyBonus', status);
+  }
+
+  // Where a player's free coins for watching ads stand (see models/AdReward.js)
+  adRewardChanged(userId, status) {
+    this.io.to(this.userRoom(userId)).emit('adReward', status);
   }
 
   // Tells a player how many coins they have now

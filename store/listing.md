@@ -74,7 +74,7 @@ Screenshots still have to be taken from the finished game:
 > • Lost your connection? Come back to the same seat and carry on
 >
 > FREE COINS, NO REAL MONEY
-> Every player starts with 50,000 free play coins. Sit at a free table, or stake coins on a game and let the winner take everything paid in. Coins are play tokens with no cash value: they cannot be bought, sold, transferred or cashed out. There is no real-money play, no purchases and no prizes. Namma Rummy is free to play and shows ads.
+> Every player starts with 50,000 free play coins. Sit at a free table, or stake coins on a game and let the winner take everything paid in. Coins are play tokens with no cash value: they cannot be bought, sold, transferred or cashed out. There is no real-money play, no purchases and no prizes. Need more coins? Watch a few short videos under Free Coins. Namma Rummy is free to play and shows ads.
 >
 > Namma Rummy is for players aged 18 and over.
 
@@ -83,7 +83,7 @@ Screenshots still have to be taken from the finished game:
 | Question | Answer |
 |---|---|
 | Privacy policy | `https://namma-rummy.onrender.com/privacy` |
-| Ads | Yes, the app contains ads: full-screen ads from Google AdMob before a table, between rounds and after a game |
+| Ads | Yes, the app contains ads: full-screen ads from Google AdMob before a table, between rounds and after a game, and rewarded videos the player chooses to watch for free play coins (Free Coins on the menu) |
 | App access | Restricted: an account is needed. Give the reviewer a test account (see below) |
 | Target audience | 18 and over. Not a choice any more: players stake coins on the games, which the stores treat as simulated gambling |
 | News app, Health, Financial features, Government | No |

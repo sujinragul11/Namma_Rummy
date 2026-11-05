@@ -17,6 +17,9 @@ const RELEASE_SERVER_URL := "https://namma-rummy.onrender.com"
 ## (it contains a "~") in project.godot under admob/general/android/app_id. Test builds on a
 ## phone always show Google's test ads instead. See autoload/ads.gd for when ads show.
 const RELEASE_INTERSTITIAL_ID := ""
+## The game's own AdMob ad unit for the videos a player chooses to watch for free coins (a
+## "Rewarded" unit, also with a "/"). Without it a store build offers no videos.
+const RELEASE_REWARDED_ID := ""
 const DEFAULT_SERVER_URL := "http://127.0.0.1:3001"
 ## Where a test build on a phone looks first. On a phone 127.0.0.1 is the phone itself, so
 ## the default there is the address a Windows PC always has on its own Mobile hotspot.
