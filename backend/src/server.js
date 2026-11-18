@@ -15,6 +15,7 @@ const DailyBonus = require('./models/DailyBonus');
 const AdReward = require('./models/AdReward');
 const Session = require('./models/Session');
 const SocketManager = require('./socket/SocketManager');
+const DonkeyManager = require('./socket/DonkeyManager');
 const PhoneVerification = require('./sms/PhoneVerification');
 const {
   cleanPhone, displayPhone, looksMadeUp, cleanCode, MESSAGES, MAX_USERNAME_LENGTH, MIN_PASSWORD_LENGTH,
@@ -371,6 +372,8 @@ app.patch('/api/user/profile', authenticateToken, async (req, res) => {
 
 // Initialize Socket.IO
 const socketManager = new SocketManager(io);
+// Donkey Master, the second game: same connection, same logins, same coins
+const donkeyManager = new DonkeyManager(io, socketManager);
 
 // Closes the game connections opened with logins that have ended. The app then tries to
 // connect again, is told its login has ended, and shows the login screen.
@@ -415,6 +418,7 @@ setInterval(async () => {
 const deleteAccount = async (user) => {
   const contacts = await socketManager.friends.contactsOf(user.id);
   await socketManager.removeUser(String(user.id));
+  await donkeyManager.removeUser(String(user.id));
   await User.deleteAccount(user.id);
   socketManager.friends.pushAll(contacts); // their friends lists no longer hold this player
   console.log(`🗑️  Account ${user.id} deleted`);

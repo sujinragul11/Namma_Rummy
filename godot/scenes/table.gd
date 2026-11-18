@@ -149,6 +149,11 @@ func _ready() -> void:
 	throws.keep_clear = _keep_clear.bind(chat)
 	throws.picker_opened.connect(chat.close)
 	add_child(throws)
+	# Voice chat: Mic and Speaker beside our own picture and coins (the top bar is crowded by the
+	# seats at a big table), a ring round whoever is speaking
+	var voice := TableVoice.new()
+	voice.badge_of = _badge_of
+	_my_coins_pill.add_sibling(voice)
 	# Cards fly in from the deck, so wait until the deck has been given its place on screen
 	get_tree().process_frame.connect(_on_first_frame, CONNECT_ONE_SHOT)
 
@@ -1354,6 +1359,7 @@ func _badge_of(user_id: String) -> PlayerBadge:
 func _keep_clear(chat: Control) -> Array:
 	return [
 		_leave_button, _leave_button.get_parent().get_node_or_null("SoundSwitches"), _room_label.get_parent(),
+		_my_coins_pill.get_parent().get_node_or_null("VoiceSwitches"),
 		_declare_slot, _joker_card, _deck_card, _deck_label, _open_card, _status_label, _clock_label,
 		_hand_area, _my_coins_pill, _sort_button, _group_button, _discard_button, _declare_button, _drop_button,
 		chat.get_node_or_null("ChatButtons"),

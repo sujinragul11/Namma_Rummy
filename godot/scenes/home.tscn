@@ -222,6 +222,7 @@ size_flags_vertical = 4
 tooltip_text = "Settings"
 
 [node name="Tiles" type="CenterContainer" parent="MenuPanel/Column"]
+unique_name_in_owner = true
 size_flags_vertical = 3
 
 [node name="TileRow" type="HBoxContainer" parent="MenuPanel/Column/Tiles"]

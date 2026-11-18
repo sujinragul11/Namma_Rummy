@@ -346,8 +346,9 @@ godot --headless --path . res://tests/loading_tour.tscn -- --port=3171 --db=My_R
 #   node tests/test_server.js --fresh --port=3131 --db=My_Rummy_phone_test --sms-code=246810 --sms-resend=3
 godot --headless --path . res://tests/phone_tour.tscn -- --profile=phonetour --server=http://127.0.0.1:3131 --mute
 
-# Ads: shown only before sitting down, between rounds and after a finished game (stand-in ads;
-# needs the normal 12 s break between rounds, so not a server started with NEXT_ROUND_SECONDS)
+# Ads: shown only when leaving a finished game, never before sitting down or between rounds
+# (stand-in ads; needs the normal 12 s break between rounds, so not a server started with
+# NEXT_ROUND_SECONDS)
 godot --headless --path . res://tests/ads_policy.tscn -- --profile=adstest --server=http://127.0.0.1:3101
 
 # Free coins for watching ads: the pill, the box, stand-in videos counted by the server, collecting,
@@ -678,16 +679,15 @@ your password. It asks for the password and writes the signed `.aab` next to it.
 
 **Ads (Google AdMob)**
 
-The Android app shows full-screen ads at three moments of a game and never at any other
-(`godot/autoload/ads.gd` decides, `godot/tests/ads_policy` checks it):
+The Android app shows a full-screen ad at one moment only: when the player leaves the result
+of a whole game that has finished, by Leave Game, Play Again or another table straight from
+the result (rummy and Donkey Master alike). The ad comes before the server is asked, so it
+covers only the result, never a lobby or a deal. `godot/autoload/ads.gd` decides,
+`godot/tests/ads_policy` checks it.
 
-1. Before the player sits down at a table (Play Now, a new table, a room code, an invitation,
-   Play again). The ad comes before the server is asked, so no turn clock runs meanwhile.
-2. In the break between two rounds (Pool, Deals), while at least 9 of its 12 seconds are left.
-3. When the player leaves the result of a finished game.
-
-Never during anyone's turn or the 15 seconds to arrange cards after a declaration, at most one
-every 90 seconds, and only when an ad has already been downloaded, so nobody waits for one.
+No ad before sitting down, none between the rounds of Pool, Deals or Close Joker, none during
+anyone's turn (the owner's rule since 18 November 2026). At most one every 90 seconds, and
+only when an ad has already been downloaded, so nobody waits for one.
 Players in the EEA, the UK and Switzerland first see Google's consent form, and Settings offers
 "Privacy choices for ads" where the law requires it.
 

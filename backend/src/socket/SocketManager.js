@@ -12,6 +12,7 @@ const { FriendsManager, WatchedMap } = require('./FriendsManager');
 const Matchmaker = require('./Matchmaker');
 const ChatManager = require('./ChatManager');
 const Throwables = require('./Throwables');
+const VoiceRelay = require('./VoiceRelay');
 
 const GAME_TTL_SECONDS = 86400; // 24 hours
 const CLEANUP_DELAY_MS = 300000; // 5 minutes
@@ -25,6 +26,7 @@ class SocketManager {
     this.friends = new FriendsManager(this);
     this.chat = new ChatManager(this); // messages and emoji reactions at the table
     this.throwables = new Throwables(this); // a cake, a tomato... thrown at another player's picture
+    this.voice = new VoiceRelay(this); // voice chat: what a player says reaches their own table only
     // "Play Now": players looking for a table, seated together without a room code
     this.matchmaker = new Matchmaker({
       onMatch: (tickets) => this.startMatchedGame(tickets),
@@ -40,6 +42,9 @@ class SocketManager {
     // userId -> profile photo version (0: none), read when the player connects and kept up
     // to date by avatarChanged; table states carry it for each player
     this.avatars = new Map();
+    // The Donkey Master tables (socket/DonkeyManager.js sets this): a player sits at one
+    // table at a time, in either game
+    this.donkey = null;
 
     // Redis for room persistence
     this.redis = this.connectRedis();
@@ -404,6 +409,7 @@ class SocketManager {
       // gameState follow), the player cancels it, or the connection drops.
       handle('findMatch', async (data) => {
         const options = this.tableOptions(data);
+        this.refuseIfPlayingDonkey(userId);
         const current = this.getUserGame(userId);
         if (current && current.status !== 'waiting') {
           throw new Error(`You are already in a game (room ${current.roomCode}). Finish or leave it first.`);
@@ -541,6 +547,8 @@ class SocketManager {
       this.chat.attach(socket, handle);
       // Things thrown at another player's picture, seen by the whole table
       this.throwables.attach(socket, handle);
+      // Voice chat between the players at a table
+      this.voice.attach(socket, handle);
 
       // Disconnect
       socket.on('disconnect', () => {
@@ -720,6 +728,7 @@ class SocketManager {
 
   // A user sits at one table at a time. Returns a lobby they would have to leave first, if any.
   requireFreeFor(userId, targetGameId) {
+    this.refuseIfPlayingDonkey(userId);
     const current = this.getUserGame(userId);
     if (!current || current.gameId === targetGameId) return null;
 
@@ -727,6 +736,16 @@ class SocketManager {
       throw new Error(`You are already in a game (room ${current.roomCode}). Finish or leave it first.`);
     }
     return current;
+  }
+
+  // Holding cards at a Donkey Master table that is being played: no rummy table meanwhile.
+  // A Donkey Master search or lobby is given up for the rummy table instead.
+  refuseIfPlayingDonkey(userId) {
+    if (!this.donkey) return;
+    if (this.donkey.playingAt(userId)) {
+      throw new Error('You are playing Donkey Master. Finish or leave that table first.');
+    }
+    this.donkey.matchmaker.cancel(userId);
   }
 
   // Find a game in memory, or bring it back from Redis
@@ -993,6 +1012,7 @@ class SocketManager {
     this.avatars.set(userId, version);
     const gameEngine = this.getUserGame(userId);
     if (gameEngine) this.broadcastState(gameEngine);
+    if (this.donkey) this.donkey.avatarChanged(userId);
     this.friends.contactsOf(userId)
       .then((contacts) => this.friends.pushAll(contacts))
       .catch((error) => console.error('Failed to tell friends about a photo:', error.message));

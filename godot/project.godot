@@ -8,17 +8,26 @@
 
 config_version=5
 
+[admob]
+
+general/android/app_id="ca-app-pub-1137151357132919~5621400790"
+
 [application]
 
 config/name="Namma Rummy"
 config/description="Game client for the rummy server in ../backend."
-config/version="1.0.3"
+config/version="1.0.4"
 run/main_scene="res://scenes/main.tscn"
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.0705882, 0.247059, 0.0901961, 1)
 boot_splash/image="res://assets/splash.png"
 config/icon="res://icon.png"
+
+[audio]
+
+general/ios/session_category=2
+driver/enable_input=true
 
 [autoload]
 

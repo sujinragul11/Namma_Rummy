@@ -53,13 +53,18 @@ func close() -> void:
 
 ## Sends an event without waiting for a reply.
 func send_event(event_name: String, payload: Dictionary = {}) -> void:
-	if is_online:
+	if is_online and _peer != null:
 		_peer.send_text("42" + JSON.stringify([event_name, payload]))
+
+
+## Bytes we sent that are still waiting to go out: a slow line piles them up.
+func backlog() -> int:
+	return _peer.get_current_outbound_buffered_amount() if _peer != null and is_online else 0
 
 
 ## Sends an event and returns the server's reply: {"ok": true, ...} or {"ok": false, "error": ...}.
 func request(event_name: String, payload: Dictionary = {}) -> Dictionary:
-	if not is_online:
+	if not is_online or _peer == null:  # (previews fake being online with no connection)
 		return {"ok": false, "error": "Not connected to the game server"}
 
 	var id := _next_reply_id

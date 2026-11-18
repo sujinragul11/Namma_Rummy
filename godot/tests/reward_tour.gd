@@ -96,8 +96,8 @@ func _run() -> void:
 
 	# ---------- no full-screen ad straight after a video ----------
 	Ads.use_stand_in(0.3)
-	await Ads.before_table()
-	_check("sitting down right after a video shows no full-screen ad", Ads.shown.count(Ads.TABLE) == 0 and Ads.shown[-1] == Ads.REWARD, str(Ads.shown))
+	await Ads.after_game()
+	_check("a game ending right after a video shows no full-screen ad", Ads.shown.count(Ads.GAME_OVER) == 0 and Ads.shown[-1] == Ads.REWARD, str(Ads.shown))
 
 	# ---------- collecting ----------
 	await _press("AdRewardButton")

@@ -1,0 +1,212 @@
+class_name DonkeySearch
+extends MenuOverlay
+## Donkey Master's "Play Online": the box shown while the server looks for players, like
+## rummy's MatchSearch but following Game.donkey's search. The seats of the table are drawn in
+## a row: the ones taken by players found so far show a face, the next free one has a ring
+## turning round it. Closing the box (Cancel, the cross, the shade, the back button) ends the
+## search; once the server seats the player, the table's screen opens and the box goes away.
+
+const SEAT_RADIUS := 30.0
+const SEAT_GAP := 14.0
+const LONELY_SECONDS := 30  # after this long alone, the box suggests something else
+const BROWN := Color("5d4037")
+const DIM := Color("8d6e63")
+const EMPTY_SEAT := Color("d7ccc8")
+const SCOPE_TEXT := {
+	"region": "Looking for players in your region%s",
+	"nearby": "Nobody free in your region%s yet: looking in nearby regions too",
+	"everywhere": "Looking for players everywhere%s",
+}
+
+var _game_label: Label
+var _seats: Control
+var _scope_label: Label
+var _count_label: Label
+var _time_label: Label
+var _cancel_button: Button
+var _donkey: TextureRect
+var _spin := 0.0
+var _found := 0
+
+
+func _init() -> void:
+	name = "DonkeySearch"
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var shade := ColorRect.new()
+	shade.name = "Shade"
+	shade.color = Color(0, 0, 0, 0.72)
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(shade)
+
+	var box := PanelContainer.new()
+	box.name = "Box"
+	box.anchor_left = 0.5
+	box.anchor_right = 0.5
+	box.anchor_top = 0.5
+	box.anchor_bottom = 0.5
+	box.offset_left = -380.0
+	box.offset_right = 380.0
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	add_child(box)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	box.add_child(column)
+	column.add_child(DonkeyHome.box_header("Finding Players", "DonkeySearchTitle", "DonkeySearchCloseButton", close))
+
+	_donkey = TextureRect.new()
+	_donkey.texture = DonkeyHome.picture("donkey")
+	_donkey.custom_minimum_size = Vector2(84, 84)
+	_donkey.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_donkey.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_donkey.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	column.add_child(_donkey)
+
+	_game_label = _line("DonkeySearchGame", 24, BROWN)
+	column.add_child(_game_label)
+
+	_seats = Control.new()
+	_seats.name = "DonkeySearchSeats"
+	_seats.custom_minimum_size = Vector2(0, SEAT_RADIUS * 2.0 + 14.0)
+	_seats.draw.connect(_draw_seats)
+	column.add_child(_seats)
+
+	_count_label = _line("DonkeySearchCount", 25, BROWN)
+	column.add_child(_count_label)
+	_scope_label = _line("DonkeySearchScope", 18, DIM)
+	column.add_child(_scope_label)
+	_time_label = _line("DonkeySearchTime", 17, DIM)
+	column.add_child(_time_label)
+
+	_cancel_button = Button.new()
+	_cancel_button.name = "DonkeyCancelSearchButton"
+	_cancel_button.text = "Cancel"
+	_cancel_button.custom_minimum_size = Vector2(240, 60)
+	_cancel_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_cancel_button.add_theme_font_size_override("font_size", 26)
+	_cancel_button.pressed.connect(close)
+	column.add_child(_cancel_button)
+
+
+func _ready() -> void:
+	super._ready()
+	_game_label.add_theme_font_override("font", Ui.bold_font)
+	_count_label.add_theme_font_override("font", Ui.bold_font)
+	Ui.tint_button(_cancel_button, Ui.RED)
+	Game.donkey.search_changed.connect(_on_search_changed)
+
+
+## Opens the box for the table being searched for, described in `game`.
+func open_for(game: String) -> void:
+	_game_label.text = game
+	_found = 1
+	_refresh()
+	open()
+
+
+func _line(node_name: String, font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.name = node_name
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size = Vector2(620, 0)
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	return label
+
+
+func _on_search_changed() -> void:
+	if not visible:
+		return
+	if not Game.donkey.searching():
+		close()  # seated at a table (its screen opens now), or the search failed
+		return
+	var found := int(Game.donkey.search_status.get("found", 1))
+	if found > _found:
+		Sound.play("join")  # someone else is coming to the table
+		Ui.pulse(_count_label, 1.08)
+	_found = found
+	_refresh()
+
+
+func _process(delta: float) -> void:
+	if not visible:
+		return
+	_spin += delta * 3.0
+	# The donkey trots on the spot while it waits
+	_donkey.pivot_offset = _donkey.size / 2.0
+	_donkey.rotation = sin(_spin * 1.4) * 0.12
+	_donkey.scale = Vector2.ONE * (1.0 + absf(sin(_spin * 1.4)) * 0.06)
+	_seats.queue_redraw()
+	_refresh_clock()
+
+
+func _refresh() -> void:
+	var status := Game.donkey.search_status
+	var needed := int(Game.donkey.search.get("maxPlayers", 2))
+	_found = clampi(int(status.get("found", 1)), 1, needed)
+	var region := str(status.get("region", ""))
+	var scope := str(status.get("scope", "region"))
+	_scope_label.text = str(SCOPE_TEXT.get(scope, SCOPE_TEXT.region)) % ("" if region.is_empty() or scope == "everywhere" else " (%s)" % region)
+	var searching_too := int(status.get("inQueue", 1))
+	if searching_too > _found:
+		_scope_label.text += "\n%d players are looking for this table right now" % searching_too
+	_refresh_clock()
+
+
+# The parts that change every second: the countdown to a table that starts without all its
+# seats taken, and how long the search has been going.
+func _refresh_clock() -> void:
+	var needed := int(Game.donkey.search.get("maxPlayers", 2))
+	if _found < 2:
+		_count_label.text = "Searching for players..."
+	elif Game.donkey.search_starts_at > 0:
+		_count_label.text = "%d of %d players found  ·  starting in %d s" % [_found, needed, Game.seconds_until(Game.donkey.search_starts_at)]
+	else:
+		_count_label.text = "%d of %d players found" % [_found, needed]
+
+	var since := Game.donkey.search_since
+	var waited := 0 if since == 0 else int((Time.get_ticks_msec() - since) / 1000.0)
+	_time_label.text = "Searching for %d:%02d" % [floori(waited / 60.0), waited % 60]
+	if _found < 2 and waited >= LONELY_SECONDS:
+		_time_label.text += "\nNobody else wants this table right now. Keep waiting, pick another table, or play with friends."
+
+
+# The table's seats in a row: faces for the players found, the next free seat with a ring
+# turning round it, the rest waiting with a question mark.
+func _draw_seats() -> void:
+	var needed := int(Game.donkey.search.get("maxPlayers", 2))
+	if needed < 1:
+		return
+	var width := needed * SEAT_RADIUS * 2.0 + (needed - 1) * SEAT_GAP
+	var start := Vector2((_seats.size.x - width) / 2.0 + SEAT_RADIUS, _seats.size.y / 2.0)
+	var font := Ui.bold_font
+	var font_size := int(SEAT_RADIUS * 0.9)
+	var me := str(Game.user.get("username", "?"))
+	for seat in needed:
+		var center := start + Vector2(seat * (SEAT_RADIUS * 2.0 + SEAT_GAP), 0.0)
+		var letter := "?"
+		if seat < _found:
+			# The player is the first face; the others are not named until the table opens
+			var color: Color = PlayerBadge.AVATAR_COLORS[(absi(hash(me)) + seat) % PlayerBadge.AVATAR_COLORS.size()]
+			_seats.draw_circle(center, SEAT_RADIUS + 3.0, Ui.GOLD, true, -1.0, true)
+			_seats.draw_circle(center, SEAT_RADIUS, color, true, -1.0, true)
+			if seat > 0:
+				var tick := PackedVector2Array([center + Vector2(-12, 1), center + Vector2(-4, 10), center + Vector2(13, -9)])
+				_seats.draw_polyline(tick, Color.WHITE, 6.0, true)
+				continue
+			var photo := Game.avatar_texture(Game.player_id, Game.my_avatar())
+			if photo != null:
+				PlayerBadge.draw_photo(_seats, center, SEAT_RADIUS, photo)
+				continue
+			letter = me.substr(0, 1).to_upper()
+		else:
+			_seats.draw_circle(center, SEAT_RADIUS, EMPTY_SEAT, true, -1.0, true)
+			if seat == _found:
+				_seats.draw_arc(center, SEAT_RADIUS + 5.0, _spin, _spin + PI * 1.3, 32, Ui.TEAL, 5.0, true)
+		var baseline := center.y + (font.get_ascent(font_size) - font.get_descent(font_size)) / 2.0
+		var ink := Color.WHITE if seat < _found else DIM
+		_seats.draw_string(font, Vector2(center.x - SEAT_RADIUS, baseline), letter, HORIZONTAL_ALIGNMENT_CENTER, SEAT_RADIUS * 2.0, font_size, ink)

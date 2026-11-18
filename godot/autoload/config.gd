@@ -16,10 +16,10 @@ const RELEASE_SERVER_URL := "https://namma-rummy.onrender.com"
 ## Store builds show ads only once this is filled in, together with the game's AdMob App ID
 ## (it contains a "~") in project.godot under admob/general/android/app_id. Test builds on a
 ## phone always show Google's test ads instead. See autoload/ads.gd for when ads show.
-const RELEASE_INTERSTITIAL_ID := ""
+const RELEASE_INTERSTITIAL_ID := "ca-app-pub-1137151357132919/1344253591"
 ## The game's own AdMob ad unit for the videos a player chooses to watch for free coins (a
 ## "Rewarded" unit, also with a "/"). Without it a store build offers no videos.
-const RELEASE_REWARDED_ID := ""
+const RELEASE_REWARDED_ID := "ca-app-pub-1137151357132919/5116189677"
 const DEFAULT_SERVER_URL := "http://127.0.0.1:3001"
 ## Where a test build on a phone looks first. On a phone 127.0.0.1 is the phone itself, so
 ## the default there is the address a Windows PC always has on its own Mobile hotspot.
@@ -37,6 +37,8 @@ var sound_on := true
 var muted := false
 ## The Chat switch at the table: off hides what the other players write (their emoji still show).
 var chat_on := true
+## The Speaker switch of the voice chat: off, the other players are not heard.
+var voice_speaker_on := true
 
 var _file := ConfigFile.new()
 
@@ -59,6 +61,7 @@ func _ready() -> void:
 	music_on = _file.get_value("sound", "music", true)
 	sound_on = _file.get_value("sound", "effects", true)
 	chat_on = _file.get_value("chat", "on", true)
+	voice_speaker_on = _file.get_value("voice", "speaker", true)
 	if store_build:
 		server_url = RELEASE_SERVER_URL
 	else:
@@ -105,6 +108,12 @@ func save_sound(music: bool, effects: bool) -> void:
 func save_chat(on: bool) -> void:
 	chat_on = on
 	_file.set_value("chat", "on", on)
+	_file.save(_path())
+
+
+func save_voice_speaker(on: bool) -> void:
+	voice_speaker_on = on
+	_file.set_value("voice", "speaker", on)
 	_file.save(_path())
 
 

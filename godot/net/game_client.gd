@@ -148,6 +148,10 @@ var chat_log: Array = []
 ## table reaches us. The server keeps the list with our account.
 var chat_blocked: Array = []
 var socket: SocketIOClient
+## Donkey Master, the second game, on the same login, connection and coins (see DonkeyClient).
+var donkey: DonkeyClient
+## Voice chat with the players at our rummy table: microphone, speaker, who is speaking.
+var voice: VoiceChat
 ## True while a request is on its way to the server.
 var busy: bool:
 	get:
@@ -180,6 +184,10 @@ func _ready() -> void:
 	socket.disconnected.connect(func() -> void: connection_changed.emit())
 	socket.connect_refused.connect(_on_connect_refused)
 	socket.event_received.connect(_on_event)
+	donkey = DonkeyClient.new(self)
+	add_child(donkey)
+	voice = VoiceChat.new(self)
+	add_child(voice)
 
 	if remember_login:
 		var saved := Config.load_login()
@@ -484,7 +492,7 @@ func turn_fraction() -> float:
 ## A private table (`is_private`) is for the player's own friends: it is never listed, and
 ## only someone with its room code can sit down.
 func create_game(game_type: String = "points", max_players: int = 2, stake: int = 0, is_private: bool = false, point_value: int = -1) -> Dictionary:
-	await _ad_before_table()
+	await _ad_after_game()
 	var request := table_request(game_type, max_players, stake, point_value)
 	request["private"] = is_private
 	return await _ask("createGame", request)
@@ -494,7 +502,7 @@ func create_game(game_type: String = "points", max_players: int = 2, stake: int 
 ## region (time zone) first, with no room code. The search runs until the server seats us,
 ## which brings the table's state, or until cancel_match(). Follow it through match_changed.
 func find_match(game_type: String, max_players: int, stake: int, point_value: int = -1) -> Dictionary:
-	await _ad_before_table()
+	await _ad_after_game()
 	match_search = table_request(game_type, max_players, stake, point_value)
 	match_search["timezone"] = time_zone_minutes()
 	match_status = {}
@@ -528,16 +536,17 @@ static func time_zone_minutes() -> int:
 
 
 func join_by_code(room_code: String) -> Dictionary:
-	await _ad_before_table()
+	await _ad_after_game()
 	return await _ask("joinGameByRoomCode", {"roomCode": room_code.strip_edges().to_upper()})
 
 
-# Sitting down at a table is one of the moments an ad may show (see autoload/ads.gd): before the
-# request leaves, so no turn clock runs while it is on screen. Only for this device's own
-# player, not for the extra players the tests create.
-func _ad_before_table() -> void:
-	if self == Game:
-		await Ads.before_table()
+# Leaving the result of a finished game is the one moment an ad may show (see autoload/ads.gd),
+# whether to go home, to play again or to another table: before the request leaves, so the ad
+# covers only the result. Never before sitting down or between rounds. Only for this device's
+# own player, not for the extra players the tests create.
+func _ad_after_game() -> void:
+	if self == Game and status() == "finished":
+		await Ads.after_game()
 
 
 func start_game() -> Dictionary:
@@ -590,6 +599,7 @@ func sort_hand() -> void:
 
 
 func leave() -> void:
+	await _ad_after_game()
 	# Whatever the server answers (we may be offline), this player is done with the table
 	await socket.request("leaveGame")
 	_forget_game()

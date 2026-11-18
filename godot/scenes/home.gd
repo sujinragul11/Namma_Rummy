@@ -9,6 +9,11 @@ extends Control
 ## it, the Free Coins pill opens the box where watching short videos earns coins. A game tile opens a box to set up the table;
 ## the friends tile opens the room-code form.
 ##
+## Between the coins and the daily bonus, the game switch changes the menu between the two
+## games: on the rummy menu it says Donkey Master and opens that game's home (DonkeyHome, in
+## place of the tiles); there it says Namma Rummy and brings the tiles back. The bars around
+## the menu stay the same for both, coins included: the two games share one wallet.
+##
 ## Points Rummy is not on the menu (since 2026-10-14 the big tile is Close Joker). It stays in
 ## GAME_TYPES because the server still plays it and the table still shows it.
 
@@ -45,6 +50,10 @@ const WRONG_LOGIN_MESSAGE := "That mobile number or username and password do not
 const ROUND_BUTTON := 52.0
 const BONUS_PILL := Vector2(226, 60)
 const FREE_COINS_PILL := Vector2(226, 60)
+# Narrower than the pills beside it: at 1280 wide the top bar has little more room than this
+const SWITCH_PILL := Vector2(142, 60)
+const SWITCH_DONKEY := Color("e8590c")  # the switch while it offers Donkey Master
+const SWITCH_RUMMY := Color("2e7d32")  # and while it offers Namma Rummy
 const AVATAR_RING := 3.0
 const RULES := """Every player gets 13 cards. On your turn, draw a card from the deck or the open pile, then discard one.
 
@@ -87,6 +96,9 @@ var _bonus_ready_shown := false  # whether the pill is dressed as "a spin is wai
 var _free_coins_box: AdRewardBox  # free coins for watching ads
 var _free_coins_button: Button  # the pill right of the daily bonus that opens it
 var _free_coins_ready_shown := false  # whether the pill is dressed as "coins to collect"
+var _game_switch: Button  # left of the daily bonus: changes the menu to the other game
+var _donkey_home: DonkeyHome  # the Donkey Master menu, in place of the tiles
+var _rummy_icon: Texture2D = preload("res://assets/icon_192.png")
 var _coins_label: CoinLabel
 var _stake_coins: CoinLabel  # the amount in the pill above the slider
 var _player_chips: Array[ChoiceChip] = []  # one per PLAYER_CHOICES entry
@@ -130,6 +142,8 @@ var _private_table := false
 @onready var _pool_tile: GameTile = %PoolTile
 @onready var _deals_tile: GameTile = %DealsTile
 @onready var _friends_tile: GameTile = %FriendsTile
+@onready var _tiles: Control = %Tiles
+@onready var _rules_title: Label = %RulesTitle
 
 @onready var _setup_overlay: MenuOverlay = %SetupOverlay
 @onready var _setup_title: Label = %SetupTitle
@@ -217,7 +231,7 @@ func _ready() -> void:
 	_join_button.pressed.connect(_on_join)
 	_code_edit.text_submitted.connect(_on_join.unbind(1))
 	_invite_friends_button.pressed.connect(_open_friends)
-	_help_button.pressed.connect(_rules_overlay.open)
+	_help_button.pressed.connect(_open_rules)
 	_account_button.pressed.connect(_open_settings)
 	_avatar_pill.gui_input.connect(_on_pill_input.bind(_avatar_pill))
 	_friends_button.pressed.connect(_open_friends)
@@ -248,6 +262,13 @@ func _ready() -> void:
 	_free_coins_button.pressed.connect(_open_free_coins)
 	Game.ad_reward_changed.connect(_dress_free_coins_button)
 	_dress_free_coins_button()
+	# Donkey Master's menu, under the top bar in place of the tiles; its boxes lie over everything
+	_donkey_home = DonkeyHome.new()
+	_tiles.get_parent().add_child(_donkey_home)
+	_tiles.get_parent().move_child(_donkey_home, _tiles.get_index() + 1)
+	_donkey_home.add_boxes_to(self)
+	_game_switch.pressed.connect(_switch_game)
+	_show_game()
 	# The top bar shows the player's photo once it is here, and a new one as soon as it is saved
 	Game.avatar_loaded.connect(func(user_id: String) -> void:
 		if user_id == Game.player_id:
@@ -293,6 +314,16 @@ func _build_top_bar() -> void:
 	_free_coins_button.draw.connect(_draw_free_coins_pill)
 	_coin_pill.get_parent().add_child(_free_coins_button)
 	_coin_pill.get_parent().move_child(_free_coins_button, _bonus_button.get_index() + 1)
+
+	# The game switch, between the coins and the daily bonus: the other game's picture and name
+	_game_switch = Button.new()
+	_game_switch.name = "GameSwitchButton"
+	_game_switch.custom_minimum_size = SWITCH_PILL
+	_game_switch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_game_switch.focus_mode = Control.FOCUS_NONE
+	_game_switch.draw.connect(_draw_switch_pill)
+	_coin_pill.get_parent().add_child(_game_switch)
+	_coin_pill.get_parent().move_child(_game_switch, _coin_pill.get_index() + 1)
 
 
 # The setup box the way a card-game lobby does it: round marks to pick the players and the
@@ -500,6 +531,9 @@ func _process(delta: float) -> void:
 		if Game.ad_reward_ready() != _free_coins_ready_shown:
 			_dress_free_coins_button()
 		_free_coins_button.queue_redraw()
+	# and the game switch's picture bobs
+	if _game_switch.is_visible_in_tree():
+		_game_switch.queue_redraw()
 
 	# The SMS code: another one may be asked for once its countdown has run out
 	if _resend_button.is_visible_in_tree():
@@ -551,7 +585,9 @@ func _on_brand_sorted() -> void:
 
 
 func _play_entrance() -> void:
-	if Game.is_logged_in():
+	if Game.is_logged_in() and DonkeyHome.chosen:
+		_donkey_home.entrance()
+	elif Game.is_logged_in():
 		# The tiles deal themselves out one after another
 		for index in 4:
 			Ui.pop_in([_close_joker_tile, _pool_tile, _deals_tile, _friends_tile][index], 0.06 * index)
@@ -1090,3 +1126,76 @@ func _draw_gear() -> void:
 	for tooth in 8:
 		var direction := Vector2.RIGHT.rotated(tooth * TAU / 8.0)
 		_account_button.draw_line(center + direction * 13.0, center + direction * 18.0, Color.WHITE, 5.0, true)
+
+
+# ---------- the game switch: Namma Rummy and Donkey Master ----------
+
+# The menu of the game chosen: the rummy tiles, or Donkey Master's home.
+func _show_game() -> void:
+	_tiles.visible = not DonkeyHome.chosen
+	_donkey_home.visible = DonkeyHome.chosen
+	_dress_game_switch()
+
+
+# The switch in the top bar: the other game's menu comes in, card by card.
+func _switch_game() -> void:
+	DonkeyHome.chosen = not DonkeyHome.chosen
+	_join_overlay.close()  # one box at a time
+	_setup_overlay.close()
+	_donkey_home.close_boxes()
+	Sound.play("whoosh")
+	# The pill turns over to show the game it offers now
+	_game_switch.pivot_offset = _game_switch.size / 2.0
+	var flip := _game_switch.create_tween()
+	flip.tween_property(_game_switch, "scale:x", 0.0, 0.1)
+	flip.tween_callback(_show_game)
+	flip.tween_property(_game_switch, "scale:x", 1.0, 0.12)
+	Fx.sparkle(_game_switch.get_global_rect().get_center(), Fx.GOLD, 10)
+	_play_entrance.call_deferred()
+
+
+# The rules of the game on show.
+func _open_rules() -> void:
+	_rules_title.text = "Donkey Master" if DonkeyHome.chosen else "How to play"
+	_rules_text.text = DonkeyHome.RULES if DonkeyHome.chosen else RULES
+	_rules_overlay.open()
+
+
+# The switch's colour: orange while it offers Donkey Master, green while it offers rummy.
+func _dress_game_switch() -> void:
+	var fill := SWITCH_RUMMY if DonkeyHome.chosen else SWITCH_DONKEY
+	for state_name: String in ["normal", "hover", "pressed"]:
+		var pill := Ui.box(fill.lightened(0.08) if state_name == "hover" else fill, 30, 0, 0)
+		pill.border_color = Ui.GOLD
+		pill.set_border_width_all(2)
+		pill.shadow_color = Color(0, 0, 0, 0.3)
+		pill.shadow_size = 3
+		_game_switch.add_theme_stylebox_override(state_name, pill)
+	_game_switch.tooltip_text = "Namma Rummy" if DonkeyHome.chosen else "Donkey Master"
+	_game_switch.queue_redraw()
+
+
+# The game switch: the other game's picture in a white circle (the kicking donkey, or the
+# Namma Rummy icon), then its name on two lines.
+func _draw_switch_pill() -> void:
+	var button := _game_switch
+	var height := button.size.y
+	var radius := 21.0
+	var bob := sin(_float_time * 3.0) * 2.0
+	var center := Vector2(10.0 + radius, height / 2.0 + bob)
+	button.draw_circle(center, radius + 2.0, Ui.GOLD, true, -1.0, true)
+	button.draw_circle(center, radius, Color.WHITE, true, -1.0, true)
+	if DonkeyHome.chosen:
+		PlayerBadge.draw_photo(button, center, radius - 1.0, _rummy_icon)
+	else:
+		var side := radius * 1.7
+		button.draw_texture_rect(DonkeyHome.picture("donkey"), Rect2(center - Vector2(side, side) / 2.0, Vector2(side, side)), false)
+	var font := Ui.bold_font
+	var left := center.x + radius + 8.0
+	var width := button.size.x - left - 8.0
+	var lines: Array = ["NAMMA", "RUMMY"] if DonkeyHome.chosen else ["DONKEY", "MASTER"]
+	var font_size := 19
+	while font_size > 12 and font.get_string_size(str(lines[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > width:
+		font_size -= 1
+	button.draw_string(font, Vector2(left, height / 2.0 - 3.0), lines[0], HORIZONTAL_ALIGNMENT_LEFT, width, font_size, Color.WHITE)
+	button.draw_string(font, Vector2(left, height / 2.0 + font_size - 1.0), lines[1], HORIZONTAL_ALIGNMENT_LEFT, width, font_size, Ui.GOLD)

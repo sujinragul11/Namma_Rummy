@@ -19,6 +19,7 @@ const AVATAR_COLORS: Array[Color] = [
 ]
 const RING_WIDTH := 5.0
 const JOKER_SEEN_COLOR := Color("00e676")
+const SPEAKING_COLOR := Color("00e676")
 const PHOTO_EDGE := 48  # corners of the circle a photo is cut to
 const TURN_GOLD := Color("ffca28")
 const TURN_PILL := Color(0.3, 0.2, 0.0, 0.85)  # the pill's background while lit
@@ -59,6 +60,23 @@ var pill := false:
 		pill = value
 		if _lines_box != null:
 			_light_pill()
+
+## Voice chat: this player's microphone is on, shown as a small microphone on the picture.
+var mic_on := false:
+	set(value):
+		if value != mic_on:
+			mic_on = value
+			if _avatar != null:
+				_avatar.queue_redraw()
+
+## Voice chat: how loudly this player is speaking, 0 (silent) to 1. A green ring round the
+## picture swells with it (TableVoice eases it from word to word).
+var voice_level := 0.0:
+	set(value):
+		if not is_equal_approx(value, voice_level):
+			voice_level = value
+			if _avatar != null:
+				_avatar.queue_redraw()
 
 var _player_name := ""
 var _is_turn := false
@@ -283,6 +301,11 @@ func _draw_avatar() -> void:
 		for layer in 6:
 			var alpha := (0.26 - layer * 0.04) * _glow
 			_avatar.draw_circle(center, reach + layer * 2.5, Color(TURN_GOLD, alpha), true, -1.0, true)
+	if voice_level > 0.0:
+		# Speaking: a green ring outside the turn clock, swelling with the voice, on a soft halo
+		var ring := radius + RING_WIDTH + 6.0 + 3.0 * voice_level
+		_avatar.draw_circle(center, ring + 3.0, Color(SPEAKING_COLOR, 0.22 * voice_level), true, -1.0, true)
+		_avatar.draw_arc(center, ring, 0.0, TAU, 48, Color(SPEAKING_COLOR, 0.55 + 0.45 * voice_level), 2.5 + 1.5 * voice_level, true)
 	if _photo != null:
 		draw_photo(_avatar, center, radius, _photo)
 	else:
@@ -311,6 +334,14 @@ func _draw_avatar() -> void:
 		var dot_radius := maxf(radius * 0.3, 6.0) * _dot_grow
 		_avatar.draw_circle(dot, dot_radius + 2.5, Color("0b2e17"), true, -1.0, true)
 		_avatar.draw_circle(dot, dot_radius, JOKER_SEEN_COLOR, true, -1.0, true)
+
+	if mic_on:
+		# Voice chat: a microphone on a green disc at the lower left, a little bigger while speaking
+		var spot := center + Vector2(-radius, radius) * 0.72
+		var disc := maxf(radius * 0.36, 9.0) * (1.0 + 0.18 * voice_level)
+		_avatar.draw_circle(spot, disc + 2.0, Color("0b2e17"), true, -1.0, true)
+		_avatar.draw_circle(spot, disc, TableVoice.MIC_GREEN.lerp(SPEAKING_COLOR, voice_level * 0.6), true, -1.0, true)
+		TableVoice.draw_mic(_avatar, spot + Vector2(0, -0.6), disc / 11.0, Color.WHITE)
 
 
 func _grow_dot(amount: float) -> void:

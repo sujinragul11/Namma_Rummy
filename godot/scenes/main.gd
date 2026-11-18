@@ -36,6 +36,8 @@ func _ready() -> void:
 	Game.auth_changed.connect(_refresh)
 	Game.state_changed.connect(_refresh)
 	Game.invite_received.connect(_on_invite)
+	Game.donkey.changed.connect(_refresh)
+	Game.donkey.invite_received.connect(_on_donkey_invite)
 	get_viewport().size_changed.connect(_keep_clear_of_cutouts)
 	_keep_clear_of_cutouts()
 	_refresh()
@@ -72,14 +74,26 @@ func _refresh() -> void:
 				wanted = "lobby"
 			"playing", "round_over", "finished":
 				wanted = "table"
+			_:
+				match Game.donkey.status():
+					"waiting":
+						wanted = "donkey_lobby"
+					"playing", "finished":
+						wanted = "donkey_table"
 	if wanted == _showing:
 		return
+	# Back from a game, the menu opens on the game that was played
+	if wanted in ["lobby", "table"]:
+		DonkeyHome.chosen = false
+	elif wanted.begins_with("donkey"):
+		DonkeyHome.chosen = true
 
 	# Not for the very first screen, and not into or out of the loading screen, which has its own
 	if not _showing.is_empty() and _showing != "loading" and wanted != "loading":
 		Sound.play("whoosh")
-	Sound.music("table" if wanted == "table" else "menu")
-	_drift.visible = wanted != "table"  # nothing moves behind the cards during a game
+	var at_table := wanted in ["table", "donkey_table"]
+	Sound.music("table" if at_table else "menu")
+	_drift.visible = not at_table  # nothing moves behind the cards during a game
 	var first := _showing.is_empty()
 	_showing = wanted
 	for child in _screen.get_children():
@@ -91,7 +105,7 @@ func _refresh() -> void:
 		loading_screen.finished.connect(_on_loaded)
 		_screen.add_child(loading_screen)
 		return
-	var screen: Control = SCREENS[wanted].instantiate()
+	var screen: Control = SCREENS[wanted].instantiate() if SCREENS.has(wanted) else (DonkeyLobby.new() if wanted == "donkey_lobby" else DonkeyTable.new())
 	_screen.add_child(screen)
 	# The new screen fades in over the felt
 	screen.modulate.a = 0.0
@@ -134,6 +148,13 @@ func _on_back() -> void:
 				Ui.confirm("Leave game", Ui.leave_game_warning(), "Leave", Game.leave)
 		"lobby":
 			Ui.confirm("Leave lobby", Ui.leave_lobby_warning(), "Leave", Game.leave)
+		"donkey_table":
+			if Game.donkey.status() == "finished":
+				Game.donkey.leave()
+			else:
+				Ui.confirm("Leave game", DonkeyTable.leave_warning(), "Leave", Game.donkey.leave)
+		"donkey_lobby":
+			Ui.confirm("Leave room", DonkeyLobby.leave_warning(), "Leave", Game.donkey.leave)
 		_:
 			Ui.confirm("Exit", "Close Namma Rummy?", "Exit", _quit)
 
@@ -169,6 +190,29 @@ func _on_invite(invite: Dictionary) -> void:
 		"Join",
 		Game.join_by_code.bind(str(invite.get("roomCode", "")))
 	)
+
+
+# A friend calls us to their Donkey Master room. Not over a game in progress, as for rummy.
+func _on_donkey_invite(invite: Dictionary) -> void:
+	var friend := str(invite.get("username", "A friend"))
+	var playing := (_showing == "table" and Game.status() != "finished") or (_showing == "donkey_table" and Game.donkey.status() == "playing")
+	if playing or _showing in ["lobby", "donkey_lobby"]:
+		Ui.notify("info", "%s invited you to Donkey Master" % friend)
+		return
+	Sound.play("go")
+	Input.vibrate_handheld(200)
+	var seats := int(invite.get("maxPlayers", 2))
+	var text := "%s invites you to a game of Donkey Master for up to %d players." % [friend, seats]
+	if invite.get("again", false):
+		text = "%s wants to play Donkey Master again: up to %d players." % [friend, seats]
+	var stake := int(invite.get("stake", 0))
+	if stake > 0:
+		text += "\n\nEntry: %s coins. The Donkey's entry goes to the Master." % Ui.coins_text(stake)
+	var join := func() -> void:
+		if Game.donkey.in_room():
+			await Game.donkey.leave()  # a finished table we were still looking at
+		Game.donkey.join_room(str(invite.get("roomCode", "")))
+	Ui.confirm("Donkey Master invitation", text, "Join", join)
 
 
 # Phones have notches and rounded corners; the system reports the area that is safe to use.

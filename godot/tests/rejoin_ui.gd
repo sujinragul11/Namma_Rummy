@@ -21,7 +21,7 @@ func _ready() -> void:
 	assert(button.text.contains("500"))
 	assert(not button.disabled)
 	assert(card.find_child("NextRoundLabel", true, false).text.contains("145"))
-	assert(not Ads._may_show(Ads.ROUND_BREAK))
+	assert(not Ads._may_show())
 	card._confirm_rejoin()
 	var question: ConfirmationDialog = Ui.get_node("QuestionBox")
 	assert(question.dialog_text.contains("500"))

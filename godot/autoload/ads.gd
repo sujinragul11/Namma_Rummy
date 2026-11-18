@@ -1,18 +1,14 @@
 extends Node
 ## Full-screen ads (AdMob interstitials) in the phone app. This script is the only one that
-## shows an ad, and it shows one at three moments of a game, never at any other:
+## shows an ad, and it shows one at a single moment (GAME_OVER): when the player leaves the
+## result of a WHOLE game that has finished (Leave Game, Play Again, or another table straight
+## from the result). The client awaits after_game() before it asks the server for anything, so
+## the ad covers only the result, never a lobby, a deal or a turn clock.
 ##
-##   TABLE        the player is about to sit down at a table: Play Now, a new table, a room
-##                code, an invitation, Play again. The ad comes before the request goes to the
-##                server (GameClient awaits before_table()), so no table, no turn clock and no
-##                other player is waiting while it is on screen.
-##   ROUND_BREAK  a round has ended (a declaration, or everybody else dropped) and another one
-##                follows, as in Pool and Deals: the ad fills the countdown to the next deal.
-##   GAME_OVER    the player leaves the result of a finished game.
-##
-## Also never during anyone's turn or the time to arrange cards after a declaration, never twice
-## within min_gap_seconds, and only when an ad has already been downloaded: nobody waits for
-## one to load. There are no ads on the PC or in the tests. A test build on a phone shows
+## Never when a round ends with more to come (Pool, Deals, Close Joker), never before sitting
+## down, never during a game (the user's rule, 2026-11-18). Also never twice within
+## min_gap_seconds, and only when an ad has already been downloaded: nobody waits for one to
+## load. There are no ads on the PC or in the tests. A test build on a phone shows
 ## Google's test ads; a store build shows the game's own once Config.RELEASE_INTERSTITIAL_ID
 ## and the AdMob App ID (project.godot, admob/general/android/app_id) are filled in.
 ##
@@ -28,8 +24,6 @@ signal ad_closed(moment: String)
 ## screen; ad_closed(REWARD) follows when it has gone.
 signal reward_earned
 
-const TABLE := "table"
-const ROUND_BREAK := "round_break"
 const GAME_OVER := "game_over"
 const REWARD := "reward"
 
@@ -43,9 +37,6 @@ const RETRY_SECONDS: Array[float] = [15.0, 30.0, 60.0, 120.0, 300.0]
 
 ## The least time between two ads.
 var min_gap_seconds := 90.0
-## A break between rounds gets an ad only while at least this much of it is still ahead. The
-## break lasts 12 seconds; whatever the ad takes beyond it comes off the next round.
-var round_break_min_seconds := 9.0
 ## The moments an ad was shown at, oldest first. For the tests.
 var shown: Array[String] = []
 
@@ -54,12 +45,10 @@ var _rewarded: AdBackend = null  # the videos for free coins; null: none in this
 var _admob_started := false  # Google has had the player's answer about ads and has started
 var _showing := ""  # the moment of the ad on screen; "" when there is none
 var _last_shown_msec := -1
-var _status_seen := ""  # the table's status at the previous update
 var _in_foreground := true
 
 
 func _ready() -> void:
-	Game.state_changed.connect(_on_state_changed)
 	reward_earned.connect(Game.report_ad_watched)  # the server counts every video watched
 	if _admob_in_build():
 		_backend = _admob_unit(Config.RELEASE_INTERSTITIAL_ID, TEST_INTERSTITIAL_ID, false)
@@ -91,12 +80,14 @@ func available() -> bool:
 	return _backend != null
 
 
-## Before the player sits down at a table. Shows an ad if one is due and returns once it has
-## gone; returns at once when none is due.
-func before_table() -> void:
-	if not _may_show(TABLE):
+## The player is leaving the result of a whole game that has finished. Shows an ad if one is
+## due and returns once it has gone, so the next request reaches the server only after it;
+## returns at once when none is due. The caller makes sure its game really is over (rummy:
+## GameClient, Donkey Master: DonkeyClient).
+func after_game() -> void:
+	if not _may_show():
 		return
-	_show(TABLE)
+	_show(GAME_OVER)
 	if not _showing.is_empty():
 		await ad_closed
 
@@ -110,7 +101,7 @@ func rewarded_available() -> bool:
 func rewarded_ready() -> bool:
 	if _rewarded == null or not _showing.is_empty() or not _in_foreground:
 		return false
-	if Game.status() == "playing" or Game.searching():
+	if _at_a_table() or Game.searching():
 		return false
 	return _rewarded.ready_to_show()
 
@@ -210,21 +201,7 @@ func _initialize_admob() -> void:
 	MobileAds.initialize(listener)
 
 
-func _on_state_changed() -> void:
-	var status := Game.status()
-	var was := _status_seen
-	_status_seen = status
-	if status == was:
-		return
-	if was == "playing" and status == "round_over":
-		var ahead := (Game.next_round_at - Time.get_ticks_msec()) / 1000.0
-		if ahead >= round_break_min_seconds and _may_show(ROUND_BREAK):
-			_show(ROUND_BREAK)
-	elif was == "finished" and _may_show(GAME_OVER):
-		_show(GAME_OVER)
-
-
-func _may_show(_moment: String) -> bool:
+func _may_show() -> bool:
 	# A rejoin decision has a deadline: an ad must not cover its button.
 	if Game.state.get("rejoin") is Dictionary:
 		return false
@@ -232,10 +209,16 @@ func _may_show(_moment: String) -> bool:
 		return false
 	if _last_shown_msec >= 0 and Time.get_ticks_msec() - _last_shown_msec < min_gap_seconds * 1000.0:
 		return false
-	# Never while a turn or the time to arrange cards is running, nor during a search for players
-	if Game.status() == "playing" or Game.searching():
+	# Never while a rummy game is under way (a round, the break before the next one, a lobby),
+	# nor during a search for players
+	if _at_a_table() or Game.searching():
 		return false
 	return _backend.ready_to_show()
+
+
+# Sitting at a rummy table whose game is not over: in its lobby, a round or between two rounds.
+func _at_a_table() -> bool:
+	return Game.status() in ["waiting", "playing", "round_over"]
 
 
 # A video for free coins counts as an ad too: no full-screen ad follows straight after it.

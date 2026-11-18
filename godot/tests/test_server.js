@@ -16,6 +16,9 @@
 //              for every number (tests/phone_tour). Without it numbers are not verified.
 //              No real SMS is ever sent from here, whatever backend/.env says.
 // --sms-resend=2     seconds a number waits before another code (default 30)
+// --donkey-deal=<file>  while this file exists, Donkey Master deals the pack unshuffled
+//              (♠ 2 to A, then ♥, ♣, ♦, one card to each seat in turn), so a test knows the
+//              hands: with two players seat 0 gets 2♠ 4♠ ... A♠ ... and leads the A♠
 // The tests are given the same flags and create and remove the files themselves.
 // Stop the server with Ctrl+C. It refuses the real port and any database not named ..._test.
 
@@ -46,6 +49,7 @@ const port = option('port', '3101');
 const database = option('db', 'My_Rummy_test');
 const rigFlag = option('rig-flag', '');
 const outageFlag = option('outage-flag', '');
+const donkeyFlag = option('donkey-deal', '');
 
 if (port === '3001' || !database.endsWith('_test')) {
   console.error('Refusing to run: use a port other than 3001 and a database whose name ends in _test.');
@@ -101,6 +105,13 @@ function rigDeals() {
   };
 }
 
+function rigDonkeyDeals() {
+  if (!donkeyFlag) return;
+  const DonkeyEngine = require(path.join(BACKEND, 'src', 'donkey', 'DonkeyEngine'));
+  const realShuffle = DonkeyEngine.shuffle;
+  DonkeyEngine.shuffle = (deck) => (fs.existsSync(donkeyFlag) ? deck : realShuffle(deck));
+}
+
 function breakLoginChecks() {
   if (!outageFlag) return;
   const Session = require(path.join(BACKEND, 'src', 'models', 'Session'));
@@ -152,6 +163,7 @@ async function forgetGames() {
   if (process.argv.includes('--fresh')) await freshDatabase();
   if (process.argv.includes('--forget-games')) await forgetGames();
   rigDeals();
+  rigDonkeyDeals();
   breakLoginChecks();
   console.log(`Test server: port ${port}, database ${database}${rigFlag ? `, rig flag ${rigFlag}` : ''}${outageFlag ? `, outage flag ${outageFlag}` : ''}`);
   require(path.join(BACKEND, 'src', 'server.js'));

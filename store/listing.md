@@ -83,7 +83,7 @@ Screenshots still have to be taken from the finished game:
 | Question | Answer |
 |---|---|
 | Privacy policy | `https://namma-rummy.onrender.com/privacy` |
-| Ads | Yes, the app contains ads: full-screen ads from Google AdMob before a table, between rounds and after a game, and rewarded videos the player chooses to watch for free play coins (Free Coins on the menu) |
+| Ads | Yes, the app contains ads: a full-screen ad from Google AdMob when the player leaves the result of a finished game (never during a game or between its rounds), and rewarded videos the player chooses to watch for free play coins (Free Coins on the menu) |
 | App access | Restricted: an account is needed. Give the reviewer a test account (see below) |
 | Target audience | 18 and over. Not a choice any more: players stake coins on the games, which the stores treat as simulated gambling |
 | News app, Health, Financial features, Government | No |
@@ -118,6 +118,10 @@ Data types collected, each one: *collected, not shared, processed on the server,
 | App activity > App interactions (games played and results) | Required |
 | Contacts (the friends list made inside the app; the phone's address book is never read) | Optional |
 | Photos and videos > Photos (the profile photo, only if the player adds one; also shown to other players) | Optional |
+| Audio > Voice or sound recordings (voice chat at a table, only while the player has Mic on; relayed live to the players at that table, processed ephemerally, never stored) | Optional |
+
+The app declares the Android RECORD_AUDIO permission and, on iOS, a microphone usage text,
+both for voice chat. The microphone is used only after the player switches on Mic at a table.
 
 Collected by the ads SDK (Google Mobile Ads, with Google's consent SDK). Fill these in from
 Google's own guidance, which is the authority and changes over time:

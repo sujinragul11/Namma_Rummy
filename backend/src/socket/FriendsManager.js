@@ -44,7 +44,8 @@ class FriendsManager {
     if (!sockets || sockets.size === 0) return 'offline';
 
     const gameEngine = this.manager.getUserGame(userId);
-    if (!gameEngine) return 'online';
+    // or at a Donkey Master table (socket/DonkeyManager.js)
+    if (!gameEngine) return (this.manager.donkey && this.manager.donkey.statusOf(userId)) || 'online';
     return gameEngine.status === 'waiting' ? 'lobby' : 'playing';
   }
 
