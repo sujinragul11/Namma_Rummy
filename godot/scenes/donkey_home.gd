@@ -37,6 +37,8 @@ When everyone follows suit, the trick's cards go out of the game, and whoever pl
 
 Empty your hand and you are out and safe. The first player out is the Master. The last player left holding cards is the Donkey!
 
+Request Card: between tricks you may ask the player next to you, on your left or your right, for their cards. Tap Request Your Card by their seat. If they accept, all of their cards come to you, and they are out and safe. They have 10 seconds to answer, and you can ask again after 10 seconds.
+
 Every turn has 15 seconds; when time runs out, a card is played for you.
 
 Coins are play tokens with no cash value, the same coins as in Namma Rummy. Every player pays the table's entry on sitting down. At the end the Donkey (and anyone who left while still holding cards) loses the entry, and all of it goes to the Master; everyone else gets their own entry back.

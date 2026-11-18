@@ -18,6 +18,10 @@
 //   lead the next one, is the Donkey.
 // - A player who gets up during the game while still holding cards loses, like the Donkey.
 //   Their cards leave the game with them.
+// - Between tricks a player may ask the player next to them, on either side, for their cards.
+//   If that player accepts, their whole hand goes to the one who asked, and they are out at
+//   once (the Master, if nobody is out yet). An unanswered request runs out after
+//   REQUEST_MS, and a player asks at most once every REQUEST_GAP_MS.
 //
 // Coins (see settlement): everyone pays the table's entry on sitting down. At the end the
 // Donkey, and everyone who left while holding cards, lose their entry, and it all goes to the
@@ -45,6 +49,12 @@ const MISSES_BEFORE_AWAY = 3;
 const TRICK_PAUSE_MS = seconds('DONKEY_TRICK_PAUSE_SECONDS', 1.2);
 // The first turn also waits for the cards to be dealt out on the screens
 const DEAL_MS = seconds('DONKEY_DEAL_SECONDS', 2.5);
+// A request for a neighbour's cards: the time they have to answer it, the time a player waits
+// between two requests of their own (counted from sending), and how long an answered, run out
+// or cancelled request stays in the state for everyone to see
+const REQUEST_MS = seconds('DONKEY_REQUEST_SECONDS', 10);
+const REQUEST_GAP_MS = seconds('DONKEY_REQUEST_GAP_SECONDS', 10);
+const REQUEST_SHOWN_MS = 4000;
 
 const rankOf = (card) => RANK[card.value];
 const byHandOrder = (a, b) => SUITS.indexOf(a.suit) - SUITS.indexOf(b.suit) || rankOf(a) - rankOf(b);
@@ -96,6 +106,13 @@ class DonkeyEngine {
     this.donkeyId = null;
     this.endedBy = null; // 'play' or 'leave'
     this.results = [];
+    // Requests for a neighbour's cards: [{ id, from, to, status, at, until, moved }]. Status
+    // 'pending' until answered ('accepted', 'rejected') or over ('expired', 'cancelled');
+    // `until` is when a pending one runs out, or when a finished one stops being shown;
+    // `moved` is how many cards an accepted one moved.
+    this.requests = [];
+    this.requestedAt = {}; // player id -> when they last asked
+    this.nextRequestId = 1;
   }
 
   // ---------- seats ----------
@@ -161,6 +178,7 @@ class DonkeyEngine {
     this.discarded += player.hand.length;
     if (player.hand.some((card) => card.id === this.mustLead)) this.mustLead = null;
     player.hand = [];
+    this.settleRequests(); // nobody asks them for cards any more, nor gives them any
 
     const remaining = this.seated().filter((other) => this.inPlay(other));
     if (remaining.length < 2) {
@@ -259,6 +277,8 @@ class DonkeyEngine {
       this.mustLead = null;
     }
     this.trick.push({ playerId: id, card });
+    // With no cards left they can neither give their hand nor take someone else's
+    if (player.hand.length === 0) this.settleRequests();
 
     if (card.suit !== this.leadSuit) {
       this.endTrick('pickup', id);
@@ -367,6 +387,7 @@ class DonkeyEngine {
     }
     this.leader = next;
     this.setTurn(next);
+    this.settleRequests(); // those now out can neither give nor take cards
     return false;
   }
 
@@ -405,19 +426,27 @@ class DonkeyEngine {
     this.turnDeadline = id ? Date.now() + extra + (quick ? AWAY_MS : TURN_MS) : null;
   }
 
-  // After a restart of the server nobody has lost any time
+  // After a restart of the server nobody has lost any time, to play or to answer a request
   restartClock() {
     if (this.status !== 'playing') return;
     if (this.trickEnd) this.resolveAt = Date.now() + TRICK_PAUSE_MS;
     else if (this.turn) this.setTurn(this.turn);
+    for (const request of this.requests) {
+      if (request.status === 'pending') request.until = Date.now() + REQUEST_MS;
+    }
   }
 
-  // The next thing the table waits for: { at, what: 'resolve' | 'turn' }, or null
+  // The next thing the table waits for: { at, what: 'resolve' | 'turn' | 'requests' }, or
+  // null. 'requests': a request runs out, or an answered one stops being shown (settleRequests).
   nextDeadline() {
     if (this.status !== 'playing') return null;
-    if (this.trickEnd) return { at: this.resolveAt, what: 'resolve' };
-    if (this.turn) return { at: this.turnDeadline, what: 'turn' };
-    return null;
+    let next = null;
+    if (this.trickEnd) next = { at: this.resolveAt, what: 'resolve' };
+    else if (this.turn) next = { at: this.turnDeadline, what: 'turn' };
+    for (const request of this.requests) {
+      if (!next || request.until < next.at) next = { at: request.until, what: 'requests' };
+    }
+    return next;
   }
 
   finish(endedBy) {
@@ -431,6 +460,7 @@ class DonkeyEngine {
     for (const player of this.seated()) {
       if (this.inPlay(player)) this.placeOut(player);
     }
+    this.settleRequests(); // nothing is asked for any more
     const coins = this.settlement();
     this.results = this.seated()
       .map((player) => ({
@@ -471,6 +501,151 @@ class DonkeyEngine {
 
   pot() {
     return this.stake * this.players.size;
+  }
+
+  // ---------- asking a neighbour for their cards ----------
+
+  // The nearest players in play on either side of `id`, clockwise first (one id when both
+  // sides are the same player); [] when `id` is not in play
+  neighbours(id) {
+    id = String(id);
+    if (this.status !== 'playing' || !this.inPlay(this.players.get(id))) return [];
+    const seated = this.seated();
+    const from = seated.findIndex((player) => player.id === id);
+    const found = [];
+    for (const direction of [1, -1]) {
+      for (let step = 1; step < seated.length; step++) {
+        const player = seated[(((from + direction * step) % seated.length) + seated.length) % seated.length];
+        if (!this.inPlay(player)) continue;
+        if (!found.includes(player.id)) found.push(player.id);
+        break;
+      }
+    }
+    return found;
+  }
+
+  // Requests are sent between tricks: once the ace of spades has been led, while no trick is
+  // being played and none lies on the table
+  betweenTricks() {
+    return this.status === 'playing' && !this.mustLead && this.trick.length === 0 && !this.trickEnd;
+  }
+
+  // How long `id` still has to wait before asking again, in ms; 0 when they may ask
+  requestWait(id, now = Date.now()) {
+    const last = this.requestedAt[String(id)];
+    return last === undefined ? 0 : Math.max(0, last + REQUEST_GAP_MS - now);
+  }
+
+  // `fromId` asks `toId`, a player next to them, for their cards: between tricks, one open
+  // request at a time, and not again within REQUEST_GAP_MS of the last one. Returns the request.
+  requestCard(fromId, toId, now = Date.now()) {
+    fromId = String(fromId);
+    toId = String(toId);
+    const from = this.players.get(fromId);
+    if (!from || from.left) throw new Error('You are not playing at this table');
+    if (this.status !== 'playing') throw new Error('The game is not being played');
+    if (from.out) throw new Error('You are out of this game');
+    if (this.mustLead) throw new Error(`Wait until the ${this.mustLead} has been led`);
+    if (!this.betweenTricks()) throw new Error('Ask between tricks');
+    if (this.requests.some((request) => request.from === fromId && request.status === 'pending')) {
+      throw new Error('Wait for the answer to your request');
+    }
+    const wait = this.requestWait(fromId, now);
+    if (wait > 0) throw new Error(`Wait ${Math.ceil(wait / 1000)} s before asking again`);
+    if (!this.neighbours(fromId).includes(toId)) throw new Error('You can ask only the players next to you');
+    // Between tricks everyone in play holds cards; this is only to be sure
+    if (from.hand.length === 0 || this.players.get(toId).hand.length === 0) throw new Error('There are no cards to move');
+
+    const request = { id: `r${this.nextRequestId++}`, from: fromId, to: toId, status: 'pending', at: now, until: now + REQUEST_MS, moved: 0 };
+    this.requests.push(request);
+    this.requestedAt[fromId] = now;
+    return request;
+  }
+
+  // `toId` answers a request for their cards. Rejected, nothing moves. Accepted, their whole
+  // hand goes to the player who asked, and they are out at once (the Master, if nobody is out
+  // yet); not while a card of theirs lies in the trick, though: then it waits until the trick
+  // is over. Returns the request.
+  answerRequest(toId, requestId, accept, now = Date.now()) {
+    toId = String(toId);
+    const request = this.requests.find((asked) => asked.id === String(requestId));
+    if (!request || request.to !== toId) throw new Error('There is no such request for you');
+    if (request.status !== 'pending' || now >= request.until) throw new Error('This request is over');
+    if (!accept) {
+      this.closeRequest(request, 'rejected', now);
+      return request;
+    }
+    if (this.trickEnd || this.trick.some((play) => play.playerId === toId)) throw new Error('Wait until this trick is over');
+    const giver = this.players.get(toId);
+    const taker = this.players.get(request.from);
+    if (!this.requestPossible(request)) {
+      // settleRequests closes these as they happen; this is only to be sure
+      this.closeRequest(request, 'cancelled', now);
+      throw new Error(`${taker ? taker.username : 'That player'} cannot take your cards any more`);
+    }
+
+    request.moved = giver.hand.length;
+    taker.hand.push(...giver.hand);
+    taker.hand.sort(byHandOrder);
+    giver.hand = [];
+    this.closeRequest(request, 'accepted', now);
+    this.placeOut(giver);
+    if (this.turn === giver.id) {
+      // Their turn passes on, as when a player gets up
+      if (this.trick.length === 0) {
+        this.leader = this.nextInPlay(giver.id);
+        this.setTurn(this.leader);
+      } else {
+        this.moveOn(giver.id);
+      }
+    }
+    // Between tricks the one player left holding cards is the Donkey. In the middle of a trick
+    // that waits until the trick is over: a cut can still give someone cards again.
+    if (this.trick.length === 0 && !this.trickEnd) {
+      const holders = this.seated().filter((player) => this.inPlay(player) && player.hand.length > 0);
+      if (holders.length === 1) {
+        this.makeDonkey(holders[0]);
+        this.finish('play');
+        return request;
+      }
+    }
+    this.settleRequests(now); // the giver's other requests, to and from them, are over
+    return request;
+  }
+
+  // A pending request can still be answered: the game goes on, and both players are in it
+  // with cards in their hands
+  requestPossible(request) {
+    const from = this.players.get(request.from);
+    const to = this.players.get(request.to);
+    return this.status === 'playing' && this.inPlay(from) && this.inPlay(to) && from.hand.length > 0 && to.hand.length > 0;
+  }
+
+  closeRequest(request, status, now = Date.now()) {
+    request.status = status;
+    request.until = now + REQUEST_SHOWN_MS;
+  }
+
+  // Pending requests run out at their time or end when they can no longer be answered, and
+  // finished ones are dropped once they have been shown. Returns true when anything changed.
+  settleRequests(now = Date.now()) {
+    let changed = false;
+    for (const request of this.requests) {
+      if (request.status !== 'pending') continue;
+      if (now >= request.until) {
+        this.closeRequest(request, 'expired', now);
+        changed = true;
+      } else if (!this.requestPossible(request)) {
+        this.closeRequest(request, 'cancelled', now);
+        changed = true;
+      }
+    }
+    const kept = this.requests.filter((request) => request.status === 'pending' || now < request.until);
+    if (kept.length !== this.requests.length) {
+      this.requests = kept;
+      changed = true;
+    }
+    return changed;
   }
 
   // ---------- what a player sees ----------
@@ -523,7 +698,21 @@ class DonkeyEngine {
       masterId: this.masterId || '',
       donkeyId: this.donkeyId || '',
       results: this.results,
-      endedBy: this.endedBy || ''
+      endedBy: this.endedBy || '',
+      // Requests for cards, everyone's, for the whole table to see; expiresIn (ms) while pending
+      requests: this.requests.map((request) => ({
+        id: request.id,
+        from: request.from,
+        to: request.to,
+        status: request.status,
+        expiresIn: request.status === 'pending' ? Math.max(0, request.until - Date.now()) : 0,
+        moved: request.moved
+      })),
+      neighbours: this.neighbours(viewerId),
+      canRequest: this.betweenTricks() && this.inPlay(viewer) && viewer.hand.length > 0,
+      requestWait: this.requestWait(viewerId),
+      requestSeconds: Math.round(REQUEST_MS / 1000),
+      requestGapSeconds: Math.round(REQUEST_GAP_MS / 1000)
     };
   }
 
@@ -556,6 +745,9 @@ DonkeyEngine.MAX_PLAYERS = MAX_PLAYERS;
 DonkeyEngine.TURN_MS = TURN_MS;
 DonkeyEngine.AWAY_MS = AWAY_MS;
 DonkeyEngine.TRICK_PAUSE_MS = TRICK_PAUSE_MS;
+DonkeyEngine.REQUEST_MS = REQUEST_MS;
+DonkeyEngine.REQUEST_GAP_MS = REQUEST_GAP_MS;
+DonkeyEngine.REQUEST_SHOWN_MS = REQUEST_SHOWN_MS;
 DonkeyEngine.byHandOrder = byHandOrder;
 
 module.exports = DonkeyEngine;

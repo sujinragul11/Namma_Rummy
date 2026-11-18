@@ -81,9 +81,23 @@ const RANKS := ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"
 ##   "masterId": String, "donkeyId": String,  # "" until known
 ##   "results": [] while playing; when finished, by place: [ {"id", "username", "place",
 ##       "donkey": bool, "left": bool, "coins": int (what they won, or lost if negative)} ],
-##   "endedBy": "" | "play" | "leave"  # the last card was played, or the others got up
+##   "endedBy": "" | "play" | "leave",  # the last card was played, or the others got up
+##   # Request Card: between tricks a player may ask a player next to them for their cards
+##   # (request_card). The asked player accepts (all their cards go to the one who asked, and
+##   # they are out and safe) or rejects, within requestSeconds; otherwise it expires. Who
+##   # asked waits requestGapSeconds before asking again. The server checks all of it.
+##   "requests": [ {"id": String, "from": String, "to": String,
+##       "status": "pending" | "accepted" | "rejected" | "expired" | "cancelled",
+##       "expiresIn": int msec (pending only), "moved": int (cards that went, accepted only)} ],
+##       # every request at the table still on show, for everyone to see
+##   "neighbours": [player ids],  # whom we may ask: the nearest players in play on either side
+##   "canRequest": bool,  # between tricks, and we are in play with cards
+##   "requestWait": int msec,  # until we may ask again; 0 when we may now
+##   "requestSeconds": int, "requestGapSeconds": int
 ## }
 var state: Dictionary = {}
+## When we may ask for cards again (ticks); 0 when we may now.
+var request_ready_at := 0
 ## The turn's deadline as a Time.get_ticks_msec() value, 0 when no clock runs, and how long
 ## the whole turn is (msec), so a clock can be drawn as a shrinking ring.
 var turn_ends_at := 0
@@ -101,6 +115,7 @@ var search_starts_at := 0
 var _client: GameClient
 # The table last sat at, for play_again(): {"private", "maxPlayers", "stake", "roomId"}
 var _last_table: Dictionary = {}
+var _request_ends: Dictionary = {}  # request id -> when a pending request runs out (ticks)
 
 
 func _init(client: GameClient) -> void:
@@ -181,6 +196,72 @@ func turn_fraction() -> float:
 
 func searching() -> bool:
 	return not search.is_empty()
+
+
+# ---------- Request Card ----------
+
+func requests() -> Array:
+	return state.get("requests", [])
+
+
+## Whom we may ask: the nearest players still in play on either side of us.
+func neighbours() -> Array:
+	return state.get("neighbours", [])
+
+
+## The newest request on show that `player_id` asked or was asked; empty when there is none.
+func request_about(player_id: String) -> Dictionary:
+	var found: Dictionary = {}
+	for request: Dictionary in requests():
+		if str(request.get("from")) == player_id or str(request.get("to")) == player_id:
+			found = request
+	return found
+
+
+## The oldest request to us still waiting for our answer; empty when there is none.
+func request_to_me() -> Dictionary:
+	for request: Dictionary in requests():
+		if str(request.get("to")) == _client.player_id and request.get("status") == "pending":
+			return request
+	return {}
+
+
+## Our own request still waiting for an answer; empty when there is none.
+func my_pending_request() -> Dictionary:
+	for request: Dictionary in requests():
+		if str(request.get("from")) == _client.player_id and request.get("status") == "pending":
+			return request
+	return {}
+
+
+## Milliseconds until we may ask again; 0 when we may now.
+func request_wait() -> int:
+	return maxi(0, request_ready_at - Time.get_ticks_msec()) if request_ready_at > 0 else 0
+
+
+## True when we may ask `player_id` for their cards right now.
+func may_request(player_id: String) -> bool:
+	return status() == "playing" and state.get("canRequest", false) and neighbours().has(player_id) \
+		and request_wait() == 0 and my_pending_request().is_empty()
+
+
+## How much of a pending request's time to answer is left, from 1 down to 0.
+func request_time_left(request: Dictionary) -> float:
+	var ends: int = _request_ends.get(str(request.get("id")), 0)
+	var total := int(state.get("requestSeconds", 10)) * 1000.0
+	if ends == 0 or total <= 0.0:
+		return 0.0
+	return clampf((ends - Time.get_ticks_msec()) / total, 0.0, 1.0)
+
+
+## Asks `player_id` (a neighbour) for their cards.
+func request_card(player_id: String) -> Dictionary:
+	return await _ask("donkeyRequestCard", {"to": player_id})
+
+
+## Our answer to a request: only an accept moves our cards (all of them) to whoever asked.
+func answer_request(request_id: String, accept: bool) -> Dictionary:
+	return await _ask("donkeyAnswerRequest", {"requestId": request_id, "accept": accept})
 
 
 ## The table we last sat at was private (for play_again: a new private table, or a new search).
@@ -354,7 +435,9 @@ func _apply_state(new_state: Dictionary) -> void:
 	if searching() and new_state.get("status") in ["waiting", "playing"]:
 		_stop_search()
 	var turn_changed: bool = state.get("roomId") != new_state.get("roomId") or state.get("turn") != new_state.get("turn")
+	var before: Array = state.get("requests", []) if state.get("roomId") == new_state.get("roomId") else []
 	state = new_state
+	_apply_requests(before)
 	_last_table = {
 		"private": new_state.get("private", false), "maxPlayers": int(new_state.get("maxPlayers", 2)),
 		"stake": int(new_state.get("stake", 0)), "roomId": str(new_state.get("roomId", "")),
@@ -366,6 +449,57 @@ func _apply_state(new_state: Dictionary) -> void:
 	elif turn_changed or int(turn_time) > turn_total:
 		turn_total = maxi(int(turn_time), int(new_state.get("turnSeconds", 0)) * 1000)
 	changed.emit()
+
+
+# Request Card: the clocks of the requests, and news of each one that came or was answered,
+# told to the two players it concerns and, when cards moved, to the whole table.
+func _apply_requests(before: Array) -> void:
+	var wait := int(state.get("requestWait", 0))
+	request_ready_at = Time.get_ticks_msec() + wait if wait > 0 else 0
+	var now := Time.get_ticks_msec()
+	var seen := {}
+	for request: Dictionary in before:
+		seen[str(request.get("id"))] = str(request.get("status"))
+	var ends := {}
+	for request: Dictionary in requests():
+		var id := str(request.get("id"))
+		if request.get("status") == "pending":
+			ends[id] = now + int(request.get("expiresIn", 0))
+		var was: String = seen.get(id, "")
+		var status_now := str(request.get("status"))
+		if was != status_now:
+			_announce_request(request, was)
+	_request_ends = ends
+
+
+func _announce_request(request: Dictionary, was: String) -> void:
+	var me := _client.player_id
+	var from := str(request.get("from"))
+	var to := str(request.get("to"))
+	var asker := player_name(from)
+	var asked := player_name(to)
+	match str(request.get("status")):
+		"pending":
+			if was.is_empty() and to == me:
+				_client.notice.emit("info", "%s asks for your cards" % asker)
+			elif was.is_empty() and from == me:
+				_client.notice.emit("info", "Request sent to %s" % asked)
+		"accepted":
+			var moved := int(request.get("moved", 0))
+			if from == me:
+				_client.notice.emit("warning", "%s accepted: you got all %d of their cards" % [asked, moved])
+			elif to == me:
+				_client.notice.emit("info", "You gave your cards to %s: you are out and safe!" % asker)
+			else:
+				_client.notice.emit("info", "%s gave all %d cards to %s" % [asked, moved, asker])
+		"rejected":
+			if from == me:
+				_client.notice.emit("info", "%s rejected your request" % asked)
+		"expired":
+			if from == me:
+				_client.notice.emit("info", "No answer from %s" % asked)
+			elif to == me:
+				_client.notice.emit("info", "You did not answer %s in time" % asker)
 
 
 # What happened to another player at our table, for Game.notice.
@@ -405,6 +539,8 @@ func _forget_table() -> void:
 	state = {}
 	turn_ends_at = 0
 	turn_total = 0
+	request_ready_at = 0
+	_request_ends = {}
 
 
 # The online size nearest to a table's seats (a private table may have had any number).

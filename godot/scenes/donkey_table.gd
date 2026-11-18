@@ -56,7 +56,12 @@ var _leave_button: Button
 var _voice: TableVoice
 var _chat: TableChat
 var _lead_area: Control  # nothing drawn: where the felt shows the suit led
+var _requests: DonkeyRequests
 var _result: DonkeyResult
+# Request Card, for one layout: whose seat the cards that arrive in our hand come from, and
+# whose seat the cards that leave it go to (all our cards, given away)
+var _received_from := ""
+var _given_to := ""
 
 
 ## What a player is told before leaving a game in progress.
@@ -197,6 +202,12 @@ func _init() -> void:
 	throws.picker_opened.connect(_chat.close)
 	add_child(throws)
 
+	# Request Card: the pills under our neighbours' seats, the box when we are asked, the tags
+	# on the seats. Over the chat and the throw buttons, so its box takes the taps; under the result
+	_requests = DonkeyRequests.new()
+	_requests.seat_of = func(id: String) -> Object: return _seats.get(id)
+	add_child(_requests)
+
 	_result = DonkeyResult.new()
 	add_child(_result)
 
@@ -258,7 +269,15 @@ func _refresh() -> void:
 	_trick_no = trick_no
 	if not Game.donkey.playable().has(_picked):
 		_picked = ""
+	# A request accepted: a whole hand changed owner, and ours may be the one
+	for moved: Dictionary in _requests.refresh():
+		if moved.taker == Game.player_id:
+			_received_from = moved.giver
+		elif moved.giver == Game.player_id:
+			_given_to = moved.taker
 	_layout(true)
+	_received_from = ""
+	_given_to = ""
 	_refresh_texts()
 	_celebrate_places()
 	if Game.donkey.status() == "finished" and not _finish_shown:
@@ -418,6 +437,7 @@ func _keep_clear() -> Array:
 		_chat.get_node_or_null("ChatButtons"), _chat.get_node_or_null("ChatPanel"), _chat.get_node_or_null("EmojiPanel"),
 	]
 	controls.append_array(_card_layer.get_children())
+	controls.append_array(_requests.controls())
 	return controls
 
 
@@ -455,7 +475,7 @@ func _layout(animate: bool) -> void:
 		var card: Dictionary = hand[index]
 		var id := str(card.get("id", ""))
 		wanted[id] = true
-		var view := _view_for(card, _table_center())
+		var view := _view_for(card, _hand_origin())
 		var fresh := not view.has_meta("in_hand")
 		view.set_meta("in_hand", true)
 		if view.has_meta("in_trick"):
@@ -565,6 +585,13 @@ func _layout(animate: bool) -> void:
 	_felt.queue_redraw()
 
 
+# Where a card new in our hand comes from: the seat of a player who gave us their cards, or the
+# middle of the table (dealt, or a trick picked up).
+func _hand_origin() -> Vector2:
+	var seat: DonkeySeat = _seats.get(_received_from)
+	return seat.avatar_center() - global_position if seat != null else _table_center()
+
+
 func _index_in(cards: Array, card_id: String) -> int:
 	for index in cards.size():
 		if str(cards[index].get("id", "")) == card_id:
@@ -596,7 +623,12 @@ func _send_away(view: CardView) -> void:
 	var outcome := str(_leaving.get("outcome", "discard"))
 	var to := _pile.position + _pile.size / 2.0
 	var shrink := Vector2(PILE_CARD / maxf(1.0, view.size.x), PILE_CARD / maxf(1.0, view.size.x))
-	if outcome == "pickup":
+	var receiver: DonkeySeat = _seats.get(_given_to)
+	if view.has_meta("in_hand") and receiver != null:
+		# Our cards, given away on a request: to the seat of the player who asked
+		to = receiver.avatar_center() - global_position
+		shrink = Vector2(0.4, 0.4)
+	elif outcome == "pickup":
 		var seat: DonkeySeat = _seats.get(str(_leaving.get("by", "")))
 		if seat != null:
 			to = seat.avatar_center() - global_position

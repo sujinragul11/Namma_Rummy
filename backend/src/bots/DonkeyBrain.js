@@ -14,7 +14,22 @@ const rankOf = (card) => VALUES.indexOf(card.value);
 
 const randomly = (chance) => Math.random() < chance;
 
+// Request Card: taking a neighbour's whole hand only adds cards, so a computer player asks
+// seldom, and only someone about to escape anyway (a few cards), as people do now and then
+const ASK_CHANCE = 0.04; // per computer player, at the start of each trick
+const ASK_MAX_CARDS = 4;
+
 class DonkeyBrain {
+  // Request Card, between tricks: the neighbour `botId` asks for their hand, or null
+  static whomToAsk(engine, botId) {
+    if (!randomly(ASK_CHANCE)) return null;
+    const candidates = engine.neighbours(botId)
+      .map((id) => engine.players.get(id))
+      .filter((player) => player && player.hand.length > 0 && player.hand.length <= ASK_MAX_CARDS);
+    if (candidates.length === 0) return null;
+    return candidates.sort((a, b) => a.hand.length - b.hand.length)[0].id;
+  }
+
   // The id of the card `botId` plays now, or null when it may play none
   static choose(engine, botId) {
     const player = engine.players.get(String(botId));

@@ -133,6 +133,9 @@ class DonkeyManager {
     handle('donkeyCancelFind', async () => ({ cancelled: this.matchmaker.cancel(userId) }));
     handle('donkeyStart', async () => this.start(userId));
     handle('donkeyPlay', async (data) => this.play(userId, data));
+    // Request Card: ask a neighbour for their hand; they accept or reject (see DonkeyEngine)
+    handle('donkeyRequestCard', async (data) => this.requestCard(userId, data));
+    handle('donkeyAnswerRequest', async (data) => this.answerRequest(userId, data));
     handle('donkeyInvite', (data) => this.invite(socket, data));
     handle('donkeyLeave', async () => {
       this.matchmaker.cancel(userId);
@@ -312,6 +315,25 @@ class DonkeyManager {
     return {};
   }
 
+  // Request Card. Between tricks a player may ask the player next to them, on either side,
+  // for their cards; at most one request every few seconds. Everything is checked by the
+  // engine: who may ask whom and when, the wait, the answer within its time.
+  async requestCard(userId, data) {
+    const engine = this.requireRoom(userId);
+    const request = engine.requestCard(userId, String(data.to || ''));
+    await this.afterMove(engine);
+    return { requestId: request.id };
+  }
+
+  // The asked player's answer. Only an explicit accept moves the cards: all of the asked
+  // player's hand goes to the one who asked, and the asked player is out.
+  async answerRequest(userId, data) {
+    const engine = this.requireRoom(userId);
+    const request = engine.answerRequest(userId, String(data.requestId || ''), data.accept === true);
+    await this.afterMove(engine);
+    return { status: request.status };
+  }
+
   // Gets a player up. Before the deal their entry comes back; holding cards during the game
   // they lose it (DonkeyEngine.removePlayer); out of the game already, it costs nothing.
   async leave(userId) {
@@ -394,6 +416,8 @@ class DonkeyManager {
       }
       if (next.what === 'resolve') {
         engine.resolveTrick();
+      } else if (next.what === 'requests') {
+        engine.settleRequests(); // an unanswered request has run out, or an answer has been shown
       } else {
         const result = engine.autoPlay();
         if (result.wentAway) this.notice(engine, 'away', result.playerId, '', true);

@@ -16,7 +16,7 @@ general/android/app_id="ca-app-pub-1137151357132919~5621400790"
 
 config/name="Namma Rummy"
 config/description="Game client for the rummy server in ../backend."
-config/version="1.0.5"
+config/version="1.0.6"
 run/main_scene="res://scenes/main.tscn"
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.7", "GL Compatibility")

@@ -41,6 +41,20 @@ var mic_on := false:
 		if value != mic_on:
 			mic_on = value
 			_redraw()
+## Request Card (DonkeyRequests sets these): a word for the tag over the picture while a
+## request concerns this player ("ASKED", "ASKING", "ACCEPTED"...), its colour, and how much of
+## the time to answer is left, 1 down to 0, drawn as a fill that runs down (below 0: none).
+var request_tag := "":
+	set(value):
+		if value != request_tag:
+			request_tag = value
+			_redraw()
+var request_fill := Color.BLACK
+var request_left := -1.0:
+	set(value):
+		if not is_equal_approx(value, request_left):
+			request_left = value
+			_redraw()
 var _photo: Texture2D
 var _photo_key := ""
 var _time := 0.0
@@ -268,6 +282,9 @@ func _draw_front() -> void:
 		tag = "LEFT"
 	elif not player.get("connected", true):
 		tag = "OFFLINE"
+	elif not request_tag.is_empty():
+		tag = request_tag
+		fill = request_fill
 	elif is_turn:
 		tag = "YOUR TURN" if id == Game.player_id else "PLAYING"
 		fill = TURN_GOLD
@@ -277,10 +294,16 @@ func _draw_front() -> void:
 		fill = Color("ef6c00")
 	if tag.is_empty():
 		return
-	var lift := 3.0 * sin(_time * 6.0) if is_turn else 0.0
+	var lift := 3.0 * sin(_time * 6.0) if is_turn and tag != request_tag else 0.0
 	var width := font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 20.0
 	var tag_rect := Rect2(Vector2((SIZE.x - width) / 2.0, 2.0 - lift), Vector2(width, 22.0))
-	canvas.draw_style_box(Ui.box(fill, 11, 0, 0), tag_rect)
+	if tag == request_tag and request_left >= 0.0:
+		# The time to answer runs down: the colour shrinks from the right over a dark pill
+		canvas.draw_style_box(Ui.box(Color(0, 0, 0, 0.75), 11, 0, 0), tag_rect)
+		var left_rect := Rect2(tag_rect.position, Vector2(maxf(22.0, tag_rect.size.x * request_left), tag_rect.size.y))
+		canvas.draw_style_box(Ui.box(fill, 11, 0, 0), left_rect)
+	else:
+		canvas.draw_style_box(Ui.box(fill, 11, 0, 0), tag_rect)
 	canvas.draw_string(font, Vector2(tag_rect.position.x, tag_rect.position.y + 16.0), tag, HORIZONTAL_ALIGNMENT_CENTER, tag_rect.size.x, 14, ink)
 
 
