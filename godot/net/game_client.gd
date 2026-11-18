@@ -172,6 +172,7 @@ var _ad_reward_collecting := false
 var _ad_reward_retry_at := 0  # the same for the free coins when their day has turned
 var _ads_unreported := 0  # videos watched whose report has not reached the server yet
 var _ads_reporting := false
+var _donkey_chat_room := ""  # the Donkey Master table whose chat chat_log holds
 
 
 func _ready() -> void:
@@ -186,6 +187,7 @@ func _ready() -> void:
 	socket.event_received.connect(_on_event)
 	donkey = DonkeyClient.new(self)
 	add_child(donkey)
+	donkey.changed.connect(_on_donkey_table_changed)
 	voice = VoiceChat.new(self)
 	add_child(voice)
 
@@ -369,6 +371,40 @@ func player_name(id: Variant) -> String:
 		if player.get("id") == id:
 			return str(player.get("username", "Player"))
 	return "Player"
+
+
+## The table we sit at, in either game: its id (gameId at rummy, roomId at Donkey Master),
+## or "" at none. The chat, the emoji and the things thrown belong to that table.
+func table_id() -> String:
+	if not state.is_empty():
+		return str(state.get("gameId", ""))
+	if donkey != null and not donkey.state.is_empty():
+		return str(donkey.state.get("roomId", ""))
+	return ""
+
+
+## The players at that table, as the game's own state lists them (each has "id", "username").
+func table_players() -> Array:
+	if not state.is_empty():
+		return players()
+	if donkey != null and not donkey.state.is_empty():
+		return donkey.state.get("players", [])
+	return []
+
+
+## The name of a player at that table.
+func table_player_name(id: Variant) -> String:
+	for player: Dictionary in table_players():
+		if str(player.get("id", "")) == str(id):
+			return str(player.get("username", "Player"))
+	return "Player"
+
+
+## True while the cards are being played at that table (not waiting, not between rounds).
+func table_playing() -> bool:
+	if not state.is_empty():
+		return status() == "playing"
+	return donkey != null and str(donkey.state.get("status", "")) == "playing"
 
 
 func is_my_turn() -> bool:
@@ -1061,15 +1097,30 @@ func _say(payload: Dictionary) -> void:
 # Catches up with what was said at our table: when we sit down, and after the connection was
 # lost for a while.
 func _fetch_chat() -> void:
-	var game_id: Variant = state.get("gameId")
+	var table := table_id()
 	var response: Dictionary = await socket.request("chatHistory")
-	if response.get("ok", false) and game_id != null and state.get("gameId") == game_id and response.get("gameId") == game_id:
+	if response.get("ok", false) and not table.is_empty() and table_id() == table and str(response.get("gameId", "")) == table:
 		chat_log = response.get("messages", [])
 		chat_changed.emit()
 
 
+# A Donkey Master table has its own chat too: a new one starts empty and catches up with what
+# was said there before we sat down; getting up clears it.
+func _on_donkey_table_changed() -> void:
+	var room := str(donkey.state.get("roomId", "")) if not donkey.state.is_empty() else ""
+	if room == _donkey_chat_room:
+		return
+	_donkey_chat_room = room
+	if not state.is_empty():
+		return  # at a rummy table, whose chat this is
+	chat_log = []
+	chat_changed.emit()
+	if not room.is_empty():
+		_fetch_chat()
+
+
 func _add_chat(message: Dictionary) -> void:
-	if state.is_empty() or message.get("gameId") != state.get("gameId"):
+	if table_id().is_empty() or str(message.get("gameId", "")) != table_id():
 		return  # said at a table we have left
 	if is_chat_blocked(str(message.get("userId", ""))):
 		return  # sent just before we blocked them
@@ -1127,7 +1178,7 @@ func _apply_chat_blocks(list: Array) -> void:
 ## included, through item_thrown. Like the chat it never makes the table busy, and a refusal
 ## (too many at once) is a passing notice.
 func throw_item(to_id: String, item: String) -> void:
-	if not item in THROWABLES or to_id.is_empty() or to_id == player_id or state.is_empty():
+	if not item in THROWABLES or to_id.is_empty() or to_id == player_id or table_id().is_empty():
 		return
 	var response: Dictionary = await socket.request("throwItem", {"to": to_id, "item": item})
 	if not response.get("ok", false):
@@ -1135,7 +1186,7 @@ func throw_item(to_id: String, item: String) -> void:
 
 
 func _on_item_thrown(toss: Dictionary) -> void:
-	if state.is_empty() or toss.get("gameId") != state.get("gameId"):
+	if table_id().is_empty() or str(toss.get("gameId", "")) != table_id():
 		return  # thrown at a table we have left
 	toss["from"] = str(toss.get("from", ""))
 	toss["to"] = str(toss.get("to", ""))
@@ -1256,6 +1307,8 @@ func _on_connected() -> void:
 	if status() in ["waiting", "playing", "round_over"]:
 		resync()
 		_fetch_chat()  # and hear what was said while we were away
+	elif state.is_empty() and not donkey.state.is_empty():
+		_fetch_chat()  # the same at a Donkey Master table
 	# A search ends when the connection drops; it goes on from where it was
 	if searching():
 		socket.request("findMatch", match_search)

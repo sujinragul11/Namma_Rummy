@@ -13,7 +13,8 @@ const ASKING_AMBER := Color("f9a825")
 const OFF := Color(1, 1, 1, 0.55)
 const STRUCK := Color("ff5252")
 
-## Gives the PlayerBadge of a player by id, or null (table.gd's _badge_of).
+## Gives the picture of a player by id, or null: anything with `voice_level` and `mic_on`
+## (a PlayerBadge at the rummy table, table.gd's _badge_of; a DonkeySeat at Donkey Master).
 var badge_of: Callable
 
 var _mic: Button
@@ -41,9 +42,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_beat += delta
 	var voice := Game.voice
-	for player: Dictionary in Game.players():
+	for player: Dictionary in voice.table_players():
 		var id := str(player.get("id", ""))
-		var badge: PlayerBadge = badge_of.call(id) if badge_of.is_valid() else null
+		var badge: Object = badge_of.call(id) if badge_of.is_valid() else null
 		if badge == null:
 			continue
 		var level := voice.level_of(id)
@@ -54,8 +55,8 @@ func _process(delta: float) -> void:
 		if shown < 0.02 and target == 0.0:
 			shown = 0.0
 		_rings[id] = shown
-		badge.voice_level = shown
-		badge.mic_on = voice.has_mic(id)
+		badge.set("voice_level", shown)
+		badge.set("mic_on", voice.has_mic(id))
 	if voice.mic_on or voice.asking:
 		_mic.queue_redraw()  # our own voice rings the button; the question pulses it
 

@@ -6,6 +6,7 @@ A real-time multiplayer Rummy card game built with Node.js backend and React Nat
 
 - **Real-time Multiplayer**: Play with friends using WebSocket connections
 - **Play Now (automatic matchmaking)**: pick a game and tap Play Now; the server seats you with other players who want the same table, without a room code. Players in the same region (the phone's time zone) are matched first; after 8 seconds the search widens to time zones up to 3 hours away, after 16 seconds to everyone. A 2-seat table starts as soon as two are found; a 6-seat table starts when it is full, or 15 seconds after its second player is found, with whoever is there
+- **Computer players** (since 18 November 2026): once the player who has waited longest has waited 10 seconds (`MATCH_BOT_SECONDS`), computer players take every empty seat of a Play Now (rummy) or Play Online (Donkey Master) table and it starts. The owner's choice: they look exactly like people in the app (a username, a letter picture, a profile with games and coins); only the rules and the terms say that computer players fill empty seats. Each is an ordinary account marked `is_bot` (`backend/src/bots/BotAccounts.js`; 40 are made at server start, more when all are busy) that nobody can log in to. It pays entries and wins pots like anyone, and is topped up with coins when short (type `bot_topup`). Rummy: `RummyBrain` finds the best grouping of a hand, takes the open card only when it clearly helps, discards, declares a ready hand and drops a hopeless one at the start (about 8 hands in 100); it knows only what a player in its seat knows (a closed joker stays unknown until it has a pure sequence). Donkey Master: `DonkeyBrain` ducks under the best card, dumps high cards on a cut. They pause 1 to 4.5 seconds over a move like people; once every person has left a table they play it out at once so the pot is settled. Private tables never get computer players.
 - **Multiple Game Modes**: Close Joker 240 (the joker stays hidden until you make a pure sequence; a green dot on a player's avatar shows who has seen it), Pool 101, Pool 201, and Deals Rummy (2 or 3 deals). The server also still plays Points Rummy, but the app's menu no longer offers it: Close Joker took its tile
 - **Coins**: Every account starts with 50,000 play coins. Points Rummy (server only, see above) is played for coins a point (free, 5, 10, 20, 50, 100, 200 or 500): each loser pays the winner their points times that value, and what 80 points cost is held while playing. A Pool or Deals table has an entry (free, 500, 1,000, 2,000, 5,000, 10,000, 25,000 or 50,000); each player pays it to sit down and the winner of the game takes the whole pot. Leaving before the cards are dealt gives the entry back; a game that ends without a winner returns every entry. Coins are play money: they cannot be bought, transferred or cashed out
 - **Profile photos**: Settings > Profile photo picks a picture from the phone's gallery (Android, and the PC test builds; Godot has no picker on iOS yet). The phone turns it upright, cuts it square and sends a small JPEG; it shows at the table, in the lobby, in friends lists and in the top bar. It can be removed again, and goes with a deleted account
@@ -350,6 +351,14 @@ godot --headless --path . res://tests/phone_tour.tscn -- --profile=phonetour --s
 # (stand-in ads; needs the normal 12 s break between rounds, so not a server started with
 # NEXT_ROUND_SECONDS)
 godot --headless --path . res://tests/ads_policy.tscn -- --profile=adstest --server=http://127.0.0.1:3101
+
+# Computer players (run from backend/). Whole games of computer players only, no server:
+node tests/bots-brain.js --games=40
+# and at real tables over sockets: a lone player's Play Now and Play Online tables filled, games
+# played out, coins, two people seated together, private tables left alone, a deserted table
+# finished by them. The test backend must let them in after 2 s (the others keep them out):
+#   NEXT_ROUND_SECONDS=2 node ../godot/tests/test_server.js --fresh --port=3221 --db=My_Rummy_bots_test --bot-seconds=2
+node tests/bots-e2e.js --url=http://127.0.0.1:3221 --db=My_Rummy_bots_test
 
 # Free coins for watching ads: the pill, the box, stand-in videos counted by the server, collecting,
 # the day's limit and a new day (about two minutes). Its test backend's day lasts a minute:

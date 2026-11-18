@@ -522,7 +522,7 @@ func _on_line_input(event: InputEvent, line: Control, on_tap: Callable) -> void:
 # The players at this table whom we blocked.
 func _blocked_here() -> Array:
 	var here := {}
-	for player: Dictionary in Game.players():
+	for player: Dictionary in Game.table_players():
 		here[str(player.get("id", ""))] = true
 	return Game.chat_blocked.filter(func(entry: Dictionary) -> bool: return here.has(str(entry.get("id", ""))))
 

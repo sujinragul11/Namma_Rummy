@@ -100,7 +100,7 @@ func _run() -> void:
 		_finish()
 		return
 
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var number := randi() % 100000000
 	var name_a := "sa_" + tag
 	var name_b := "sb_" + tag

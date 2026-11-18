@@ -13,6 +13,8 @@ const Matchmaker = require('./Matchmaker');
 const ChatManager = require('./ChatManager');
 const Throwables = require('./Throwables');
 const VoiceRelay = require('./VoiceRelay');
+const BotAccounts = require('../bots/BotAccounts');
+const RummyBots = require('../bots/RummyBots');
 
 const GAME_TTL_SECONDS = 86400; // 24 hours
 const CLEANUP_DELAY_MS = 300000; // 5 minutes
@@ -27,9 +29,11 @@ class SocketManager {
     this.chat = new ChatManager(this); // messages and emoji reactions at the table
     this.throwables = new Throwables(this); // a cake, a tomato... thrown at another player's picture
     this.voice = new VoiceRelay(this); // voice chat: what a player says reaches their own table only
+    // Computer players who fill the empty seats of a Play Now table nobody else came to
+    this.bots = new RummyBots(this, BotAccounts);
     // "Play Now": players looking for a table, seated together without a room code
     this.matchmaker = new Matchmaker({
-      onMatch: (tickets) => this.startMatchedGame(tickets),
+      onMatch: (tickets, bots) => this.startMatchedGame(tickets, bots),
       notify: (userId, event, payload) => this.io.to(this.userRoom(userId)).emit(event, payload)
     });
     // userId -> gameId. Friends are told whenever a player sits down or gets up
@@ -125,6 +129,11 @@ class SocketManager {
     } catch (error) {
       console.error('Failed to prepare the database for logins:', error.message);
     }
+    try {
+      await BotAccounts.prepare(); // before the games come back: they may have computer players
+    } catch (error) {
+      console.error('Failed to prepare the computer players:', error.message);
+    }
 
     const restored = [];
     try {
@@ -144,8 +153,8 @@ class SocketManager {
 
           gameEngine.restartClock();
           for (const [playerId, player] of gameEngine.players) {
-            // Nobody is connected to a game that was just restored
-            player.connected = false;
+            // No person is connected to a game that was just restored; computer players are
+            player.connected = this.bots.isBot(playerId);
             if (!player.left) this.userGames.set(playerId, gameEngine.gameId);
           }
           this.games.set(gameEngine.gameId, gameEngine);
@@ -573,7 +582,9 @@ class SocketManager {
         this.emitToGame(gameEngine, 'playerDisconnected', { userId, username: this.nameOf(gameEngine, userId) }, userId);
         this.broadcastState(gameEngine);
 
-        const anyoneConnected = Array.from(gameEngine.players.values()).some(p => p.connected);
+        // Computer players are always there; they keep nobody's table open
+        const anyoneConnected = Array.from(gameEngine.players.values())
+          .some(p => p.connected && !this.bots.isBot(p.id));
         if (!anyoneConnected) {
           this.cleanupGame(gameEngine.gameId);
         }
@@ -662,9 +673,10 @@ class SocketManager {
     return gameEngine;
   }
 
-  // The matchmaker has found players for a table: open it, take everyone's entry, deal.
-  // Resolves to the players who should search on because the table could not start.
-  async startMatchedGame(tickets) {
+  // The matchmaker has found players for a table: open it, take everyone's entry, deal. With
+  // `bots`, computer players take the seats nobody came for. Resolves to the players who
+  // should search on because the table could not start.
+  async startMatchedGame(tickets, bots = false) {
     const [first] = tickets;
     const gameEngine = await this.createTable(first, first.userId, false);
     const seated = [];
@@ -684,7 +696,16 @@ class SocketManager {
       seated.push(ticket);
     }
 
-    if (seated.length < 2) {
+    let computers = 0;
+    if (bots && seated.length > 0 && gameEngine.status === 'waiting') {
+      try {
+        computers = await this.seatBots(gameEngine);
+      } catch (error) {
+        console.error('Failed to seat computer players:', error.message);
+      }
+    }
+
+    if (seated.length + computers < 2 || seated.length === 0) {
       // Not enough left to play: give the entries back before they search again
       await this.refundEveryone(gameEngine);
       this.deleteGame(gameEngine, 'abandoned');
@@ -693,7 +714,7 @@ class SocketManager {
 
     if (gameEngine.status === 'waiting') gameEngine.startGame(); // not every seat was filled
     this.markStarted(gameEngine);
-    console.log(`🎯 Matched ${seated.length} players: ${gameEngine.gameId} (${gameEngine.gameType})`);
+    console.log(`🎯 Matched ${seated.length} players${computers ? ` and ${computers} computer players` : ''}: ${gameEngine.gameId} (${gameEngine.gameType})`);
     for (const ticket of seated) {
       this.io.to(this.userRoom(ticket.userId)).emit('matchFound', {
         gameId: gameEngine.gameId,
@@ -703,6 +724,24 @@ class SocketManager {
     }
     await this.afterMove(gameEngine);
     return [];
+  }
+
+  // Computer players for every seat still free; each pays the entry like anyone. Returns how
+  // many sat down.
+  async seatBots(gameEngine) {
+    const free = gameEngine.maxPlayers - gameEngine.players.size;
+    if (free <= 0) return 0;
+    const isBusy = (id) => this.userGames.has(id) || Boolean(this.donkey && this.donkey.userRooms.has(id));
+    const chosen = await BotAccounts.pickFree(free, isBusy, gameEngine.stake);
+    let seated = 0;
+    for (const bot of chosen) {
+      if (gameEngine.status !== 'waiting' || isBusy(bot.id)) continue;
+      await this.payEntry(gameEngine, bot.id);
+      gameEngine.addPlayer(bot.id, bot.username); // the last seat taken deals the cards
+      this.userGames.set(bot.id, gameEngine.gameId);
+      seated += 1;
+    }
+    return seated;
   }
 
   // The game a user is currently seated in, if it still exists
@@ -758,8 +797,8 @@ class SocketManager {
         if (gameData) {
           gameEngine = GameEngine.fromJSON(JSON.parse(gameData));
           for (const [playerId, player] of gameEngine.players) {
-            // Nobody is connected to a game that was just restored
-            player.connected = false;
+            // No person is connected to a game that was just restored; computer players are
+            player.connected = this.bots.isBot(playerId);
             if (!player.left) this.userGames.set(playerId, gameId);
           }
           this.games.set(gameId, gameEngine);
@@ -947,6 +986,7 @@ class SocketManager {
     const { gameId } = gameEngine;
     clearTimeout(this.timers.get(gameId));
     this.timers.delete(gameId);
+    this.bots.schedule(gameEngine); // a computer player whose move it is makes it
 
     let deadline = null;
     if (gameEngine.status === 'playing') deadline = gameEngine.turnDeadline;
@@ -1096,6 +1136,7 @@ class SocketManager {
 
     clearTimeout(this.timers.get(gameId));
     this.timers.delete(gameId);
+    this.bots.forget(gameId);
     this.cancelCleanup(gameId);
     this.games.delete(gameId);
 

@@ -1362,5 +1362,5 @@ func _keep_clear(chat: Control) -> Array:
 		_my_coins_pill.get_parent().get_node_or_null("VoiceSwitches"),
 		_declare_slot, _joker_card, _deck_card, _deck_label, _open_card, _status_label, _clock_label,
 		_hand_area, _my_coins_pill, _sort_button, _group_button, _discard_button, _declare_button, _drop_button,
-		chat.get_node_or_null("ChatButtons"),
+		chat.get_node_or_null("ChatButtons"), chat.get_node_or_null("ChatPanel"), chat.get_node_or_null("EmojiPanel"),
 	]

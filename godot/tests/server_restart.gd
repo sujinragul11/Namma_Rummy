@@ -42,7 +42,7 @@ func _run() -> void:
 		_finish()
 		return
 
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var a := _new_client()
 	var b := _new_client()
 	var errors_a: Array = []

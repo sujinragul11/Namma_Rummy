@@ -40,7 +40,8 @@ async function startServer(fresh) {
   server.log = '';
   server.stdout.on('data', (data) => { server.log += data; });
   server.stderr.on('data', (data) => { server.log += data; });
-  await until('the server', async () => fetch(`${URL}/health`).then((r) => r.ok).catch(() => false));
+  // A fresh database is dropped and made first, which takes a while on a busy PC
+  await until('the server', async () => fetch(`${URL}/health`).then((r) => r.ok).catch(() => false), 60000);
 }
 
 async function stopServer() {

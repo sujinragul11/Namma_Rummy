@@ -2,6 +2,7 @@ class_name VoiceChat
 extends Node
 ## Voice chat at the table, like a call between the players sitting at it. Every GameClient
 ## has one as its `voice` (the app's is `Game.voice`); the table shows it with TableVoice.
+## The table is the rummy table we sit at, or else our Donkey Master table (Game.donkey).
 ##
 ## The Mic switch sends what our microphone hears to the other players at our table, and only
 ## to them: the server passes each piece of sound on to that table and forgets it
@@ -113,6 +114,7 @@ func _ready() -> void:
 	_client.socket.event_received.connect(_on_event)
 	_client.socket.connected.connect(_on_connected)
 	_client.state_changed.connect(_on_table_changed)
+	_client.donkey.changed.connect(_on_table_changed)
 	get_tree().on_request_permissions_result.connect(_on_permission)
 
 
@@ -160,10 +162,18 @@ func has_mic(user_id: String) -> bool:
 		return false
 	if user_id == _client.player_id:
 		return true
-	for player: Dictionary in _client.players():
+	for player: Dictionary in table_players():
 		if str(player.get("id", "")) == user_id:
-			return player.get("connected", true)
+			return player.get("connected", true) and not player.get("left", false)
 	return false
+
+
+## The players at the table the voice belongs to, as its state lists them: the rummy table's,
+## or the Donkey Master table's.
+func table_players() -> Array:
+	if not _client.state.is_empty():
+		return _client.players()
+	return _client.donkey.players()
 
 
 ## How loud this player is speaking right now, from 0 (silent) to 1; never quite 0 while they
@@ -203,13 +213,24 @@ func _notification(what: int) -> void:
 # ---------- the table ----------
 
 func _on_table_changed() -> void:
-	var game_id := str(_client.state.get("gameId", "")) if not _client.state.is_empty() else ""
+	var game_id := _table_id()
 	if game_id == _game_id:
 		return
 	_leave_table()
 	_game_id = game_id
 	if not game_id.is_empty():
 		_fetch_mics()
+
+
+# The table we sit at, as the server knows it (and puts in every voice event's "gameId"):
+# the rummy table's gameId, or else the Donkey Master table's roomId; "" at none. A rummy
+# table comes first, as on screen (main.gd).
+func _table_id() -> String:
+	if not _client.state.is_empty():
+		return str(_client.state.get("gameId", ""))
+	if _client.donkey.in_room():
+		return str(_client.donkey.state.get("roomId", ""))
+	return ""
 
 
 # Back on the line: the server forgot our microphone when the connection dropped

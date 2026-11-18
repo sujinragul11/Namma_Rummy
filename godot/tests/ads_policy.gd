@@ -32,7 +32,7 @@ func _run() -> void:
 	Ads.ad_closed.connect(func(_moment: String) -> void: closed_with.append(Game.status()))
 
 	Game.logout()
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var number := randi() % 100000000
 	var r: Dictionary = await Game.register("ad_" + tag, "95%08d" % number, "secret12")
 	_check("player A registers", r.ok, str(r.get("error", "")))

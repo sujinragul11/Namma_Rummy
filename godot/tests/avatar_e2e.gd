@@ -53,7 +53,7 @@ func _run() -> void:
 	_check("an iPhone HEIC photo gets its own explanation", str(made.get("error", "")).contains("HEIC"), str(made))
 
 	# ---------- saving it ----------
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var number := randi() % 10000000
 	var a := _new_client()
 	var a_name := "pa_" + tag

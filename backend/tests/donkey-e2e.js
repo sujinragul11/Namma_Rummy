@@ -7,7 +7,8 @@
 // Checks: private tables (create, join by code, host start, getting up and the entry coming
 // back, a full table dealing itself), whole games played by simple bots, follow-suit refused,
 // the coins (entries, payouts, one balance with rummy), Play Online, leaving mid-game,
-// losing the connection and coming back, and rummy refusing a player busy at a donkey table.
+// losing the connection and coming back, rummy refusing a player busy at a donkey table, and
+// voice chat at a donkey table (VoiceRelay through tables.js) reaching that table only.
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -52,7 +53,7 @@ async function player(name) {
   const phone = `+9198${String(stamp).padStart(5, '0')}${String(++phoneSeed).padStart(3, '0')}`;
   const { status, data } = await http('POST', '/api/auth/register', { username: `${name}${stamp}`, phone, password: 'secret123' });
   assert.equal(status, 201, `register ${name}: ${JSON.stringify(data)}`);
-  const me = { name, id: String(data.user.id), token: data.token, coins: null, state: null, notices: [], invites: [], found: 0, failed: [] };
+  const me = { name, id: String(data.user.id), token: data.token, coins: null, state: null, notices: [], invites: [], found: 0, failed: [], voices: [], micLists: [] };
   me.connect = () => new Promise((resolve, reject) => {
     me.socket = io(URL, { auth: { token: me.token }, transports: ['websocket'], forceNew: true, reconnection: false });
     me.socket.on('connect', resolve);
@@ -63,6 +64,8 @@ async function player(name) {
     me.socket.on('donkeyInvite', (invite) => me.invites.push(invite));
     me.socket.on('donkeyMatchFound', () => { me.found++; });
     me.socket.on('donkeyMatchFailed', (payload) => me.failed.push(payload.message));
+    me.socket.on('voice', (payload) => me.voices.push(payload));
+    me.socket.on('voiceMics', (payload) => me.micLists.push(payload));
   });
   me.ask = (event, payload = {}) => new Promise((resolve) => me.socket.emit(event, payload, resolve));
   me.balance = async () => (await http('GET', '/api/user/profile', null, me.token)).data.user.coins;
@@ -151,6 +154,21 @@ function checkResult(state, stake, count) {
   equal(b.state.mustLead, '', 'only the player on turn is told what to lead');
   equal((await c.ask('donkeyJoin', { roomCode: created.roomCode })).ok, true, 'joining one\'s own table again is harmless');
 
+  // voice chat at the donkey table: the mic is known to the table, sound reaches the others only
+  const roomId = a.state.roomId;
+  const micOn = await a.ask('voiceMic', { on: true });
+  equal([micOn.ok, micOn.mics], [true, [a.id]], 'a microphone switched on at a donkey table');
+  await until('the table hears whose mic is on', () => [b, c].every((p) => p.micLists.some((m) => m.gameId === roomId && m.mics.includes(a.id))));
+  equal((await c.ask('voiceMics')), { ok: true, gameId: roomId, mics: [a.id] }, 'asking whose mic is on at a donkey table');
+  a.socket.emit('voice', { level: 60, data: 'AAAAAAAA' });
+  await until('the sound reaches the other two', () => [b, c].every((p) => p.voices.some((v) => v.gameId === roomId && v.from === a.id && v.level === 60)));
+  await sleep(200);
+  equal(a.voices.length, 0, 'the speaker does not hear themselves');
+  b.socket.emit('voice', { level: 30, data: 'AAAA' });
+  await sleep(300);
+  equal(a.voices.length + c.voices.filter((v) => v.from === b.id).length, 0, 'a player whose mic is off sends nothing');
+  equal((await a.ask('voiceMic', { on: false })).mics, [], 'and switched off again');
+
   // rummy refuses a player who holds cards at a donkey table
   const rummy = await new Promise((resolve) => a.socket.emit('createGame', { gameType: 'pool', maxPlayers: 2, stake: 0 }, resolve));
   equal(rummy.error, 'You are playing Donkey Master. Finish or leave that table first.', 'no rummy table meanwhile');
@@ -163,6 +181,7 @@ function checkResult(state, stake, count) {
   for (const r of first.results) expected[r.id] = START - 1000 + 1000 + r.coins;
   await until('the payout arrives', () => [a, b, c].every((p) => p.coins === expected[p.id]));
   for (const p of [a, b, c]) equal(await p.balance(), expected[p.id], `${p.name}'s balance after the game`);
+  equal((await a.ask('voiceMic', { on: true })).error, 'Game not found', 'no voice once the donkey game is over, as at rummy');
   const looked = await a.ask('donkeyState');
   equal(looked.ok && looked.state.status, 'finished', 'a finished table can still be looked at');
 

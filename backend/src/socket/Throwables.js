@@ -1,3 +1,5 @@
+const { requireTable } = require('./tables');
+
 // Playful things a player throws at another player's picture at the table: a cake, a tomato,
 // a ghost, an aruval... Every player at the table sees it fly from the thrower to the target
 // and play its own little scene there. Like the chat, it only passes the throw along: turns,
@@ -52,16 +54,16 @@ class Throwables {
 
     // { to: the target's user id, item: one of ITEMS }
     handle('throwItem', async (data) => {
-      const gameEngine = this.manager.requireGame(userId);
+      const table = requireTable(this.manager, userId); // rummy or Donkey Master
       const to = String(data.to == null ? '' : data.to);
       if (!ITEMS.includes(data.item)) throw new Error('Unknown item');
       if (to === userId) throw new Error('Pick another player');
-      const target = gameEngine.players.get(to);
+      const target = table.players.get(to);
       if (!target || target.left) throw new Error('That player is not at your table');
       this.checkPace(userId);
 
-      const toss = { id: this.nextId++, gameId: gameEngine.gameId, from: userId, to, item: data.item, at: Date.now() };
-      for (const [playerId, player] of gameEngine.players) {
+      const toss = { id: this.nextId++, gameId: table.id, from: userId, to, item: data.item, at: Date.now() };
+      for (const [playerId, player] of table.players) {
         if (player.left || this.hides(playerId, userId)) continue;
         this.manager.io.to(this.manager.userRoom(playerId)).emit('itemThrown', toss);
       }

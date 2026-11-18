@@ -173,6 +173,10 @@ const terms = () => layout('Terms of use', `
 <p>The app is a card game played for entertainment only. It offers no real-money play, no
 purchases and no prizes, and nothing in it can be exchanged for money or goods. It is free,
 and the Android app shows ads from Google AdMob (see the privacy policy).</p>
+<p>When not enough people are online for a table found with <em>Play Now</em> or <em>Play
+Online</em>, computer players run by the app take the empty seats after a few seconds. They
+play by the same rules as everyone, pay the same entry and can win or lose coins like any
+player. Tables you open for your friends have only the people you invite.</p>
 
 <h2>Play coins</h2>
 <p>Every account gets play coins for free, and watching the short videos under <em>Free

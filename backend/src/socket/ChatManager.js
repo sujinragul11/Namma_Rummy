@@ -1,6 +1,8 @@
 const ChatModeration = require('../models/ChatModeration');
+const { requireTable, tableExists, tableCount } = require('./tables');
 
-// Chat at the table: short messages and emoji reactions between the players of one game.
+// Chat at the table: short messages and emoji reactions between the players of one table,
+// at rummy or at Donkey Master (socket/tables.js finds the table).
 // It only passes words along. Turns, cards and the clock are never touched, and the game is
 // not saved because of it. Messages are not written down either, except one that a player
 // reports (see ChatModeration). A player who blocked another gets nothing from them.
@@ -98,16 +100,16 @@ class ChatManager {
     this.logs.set(gameId, log);
 
     // The chat of a table that is over goes with it
-    if (this.logs.size > this.manager.games.size) {
+    if (this.logs.size > tableCount(this.manager)) {
       for (const id of this.logs.keys()) {
-        if (!this.manager.games.has(id)) this.logs.delete(id);
+        if (!tableExists(this.manager, id)) this.logs.delete(id);
       }
     }
   }
 
   // Everyone at the table hears it, except whoever has blocked the sender
-  deliver(gameEngine, message) {
-    for (const [playerId, player] of gameEngine.players) {
+  deliver(table, message) {
+    for (const [playerId, player] of table.players) {
       if (player.left || this.isBlocked(playerId, message.userId)) continue;
       this.manager.io.to(this.manager.userRoom(playerId)).emit('chat', message);
     }
@@ -134,12 +136,12 @@ class ChatManager {
 
     // { text } for a message, or { emoji } with one of EMOJIS for a reaction
     handle('sendChat', async (data) => {
-      const gameEngine = this.manager.requireGame(userId);
+      const table = requireTable(this.manager, userId);
       const message = {
         id: this.nextId++,
-        gameId: gameEngine.gameId,
+        gameId: table.id, // the table's id: gameId at rummy, roomId at Donkey Master
         userId,
-        username: this.manager.nameOf(gameEngine, userId),
+        username: (table.players.get(userId) || {}).username || '',
         at: Date.now(),
       };
       if (data.emoji !== undefined) {
@@ -154,18 +156,18 @@ class ChatManager {
       }
       this.checkPace(userId);
 
-      this.remember(gameEngine.gameId, message);
-      this.deliver(gameEngine, message);
+      this.remember(table.id, message);
+      this.deliver(table, message);
       return { id: message.id };
     });
 
     // What has been said at the player's table, oldest first, leaving out whom they blocked
     handle('chatHistory', async () => {
-      const gameEngine = this.manager.requireGame(userId);
+      const table = requireTable(this.manager, userId);
       await this.loading.get(userId);
-      const messages = (this.logs.get(gameEngine.gameId) || [])
+      const messages = (this.logs.get(table.id) || [])
         .filter((message) => !this.isBlocked(userId, message.userId));
-      return { gameId: gameEngine.gameId, messages };
+      return { gameId: table.id, messages };
     });
 
     // The players this one has blocked: { blocked: [{ id, username }] }
@@ -185,8 +187,8 @@ class ChatManager {
 
     // { messageId } of a message at the player's table: kept for review, and its sender blocked
     handle('reportChat', async (data) => {
-      const gameEngine = this.manager.requireGame(userId);
-      const message = (this.logs.get(gameEngine.gameId) || []).find((entry) => entry.id === Number(data.messageId));
+      const table = requireTable(this.manager, userId);
+      const message = (this.logs.get(table.id) || []).find((entry) => entry.id === Number(data.messageId));
       if (!message) throw new Error('That message can no longer be reported');
       if (message.userId === userId) throw new Error('You cannot report your own message');
       await this.prepared();
@@ -197,7 +199,7 @@ class ChatManager {
           throw new Error('You have sent many reports. Please wait a while before sending more.');
         }
         const words = message.kind === 'emoji' ? `[emoji: ${message.emoji}]` : message.text;
-        const reportId = await ChatModeration.report(Number(userId), Number(message.userId), gameEngine.gameId, words);
+        const reportId = await ChatModeration.report(Number(userId), Number(message.userId), table.id, words);
         this.reported.add(key);
         if (this.reported.size > 5000) this.reported.clear();
         console.warn(`🚩 Chat report #${reportId}: ${socket.data.username} reported ${message.username}: ${words}`);

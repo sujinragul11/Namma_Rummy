@@ -34,8 +34,9 @@ const BOMB_FUSE := Vector2(26, -46)
 const CRACKER_FUSE := Vector2(34, -42)
 const SPARK_COLORS: Array[Color] = [Color("ff5252"), Color("ffd740"), Color("69f0ae"), Color("40c4ff"), Color("ff4081"), Color("ffffff")]
 
-## Where a player sits: takes a user id and returns their PlayerBadge, or null when they have
-## no seat on screen.
+## Where a player sits: takes a user id and returns their seat, or null when they have no seat on
+## screen. A seat is a PlayerBadge at rummy, a DonkeySeat at Donkey Master: anything with
+## avatar_center() and picture().
 var badge_of := Callable()
 ## What the buttons must never cover: returns the Controls a player taps or reads during a turn
 ## (the piles, the hand, the action buttons...).
@@ -105,9 +106,9 @@ func _process(delta: float) -> void:
 # faces the middle of the table, unless another badge is in the way there.
 func _place_buttons() -> void:
 	var present := {}
-	var playing := Game.status() == "playing"
+	var playing := Game.table_playing()
 	var seats: Array[Rect2] = []
-	for player: Dictionary in Game.players():
+	for player: Dictionary in Game.table_players():
 		var badge := _badge(str(player.get("id", "")))
 		if badge != null:
 			seats.append(_local_rect(badge.get_global_rect()))
@@ -116,7 +117,7 @@ func _place_buttons() -> void:
 		for control: Variant in keep_clear.call():
 			if control is Control and is_instance_valid(control) and (control as Control).is_visible_in_tree():
 				controls.append(_local_rect((control as Control).get_global_rect()))
-	for player: Dictionary in Game.players():
+	for player: Dictionary in Game.table_players():
 		var id := str(player.get("id", ""))
 		if id == Game.player_id or id.is_empty():
 			continue
@@ -124,7 +125,11 @@ func _place_buttons() -> void:
 		if badge == null or not playing or player.get("left", false):
 			continue
 		var own := _local_rect(badge.get_global_rect())
-		var spot := _button_spot(own, _to_local(badge.avatar_center()), badge.picture().size.x / 2.0, seats, controls)
+		# A seat may say where a small button can sit on it when there is no room beside it
+		var on_seat := Rect2()
+		if badge.has_method("throw_spot"):
+			on_seat = _local_rect(badge.call("throw_spot", Vector2(SMALL_BUTTON, SMALL_BUTTON)))
+		var spot := _button_spot(own, _to_local(_center_of(badge)), _picture_of(badge).size.x / 2.0, seats, controls, on_seat)
 		if not spot.has_area():
 			continue  # nowhere to put it without covering the game: no button rather than in the way
 		present[id] = true
@@ -152,9 +157,10 @@ func _place_buttons() -> void:
 # on the other side, under and over the picture, under and over the name, and takes the first
 # place on the screen that is clear of every badge, of the buttons placed before it (all in
 # `seats`) and of the game's own controls. At a crowded table there may be no such place: then
-# a smaller button sits on the lower corner of the player's own picture, if that corner is clear
+# a smaller button sits on the lower corner of the player's own picture (or at `on_seat`, where
+# the seat says one fits: a DonkeySeat keeps its card count on that corner), if that is clear
 # of everything else. Failing that, an empty rectangle.
-func _button_spot(rect: Rect2, middle: Vector2, radius: float, seats: Array[Rect2], controls: Array[Rect2]) -> Rect2:
+func _button_spot(rect: Rect2, middle: Vector2, radius: float, seats: Array[Rect2], controls: Array[Rect2], on_seat: Rect2 = Rect2()) -> Rect2:
 	var full := Vector2(BUTTON_SIZE, BUTTON_SIZE)
 	var half := BUTTON_SIZE / 2.0
 	var right := Vector2(rect.end.x + BUTTON_GAP, middle.y - half)
@@ -167,7 +173,8 @@ func _button_spot(rect: Rect2, middle: Vector2, radius: float, seats: Array[Rect
 		spots.append(Rect2(Vector2(x, rect.position.y - BUTTON_GAP - BUTTON_SIZE), full))
 	var small := Vector2(SMALL_BUTTON, SMALL_BUTTON)
 	var corner := middle + Vector2(radius, radius) * 0.7 - small * 0.35
-	spots.append(Rect2(corner, small))  # over the picture's corner, so its own badge is no obstacle
+	# Over the picture's corner, so its own badge is no obstacle
+	spots.append(Rect2(on_seat.position, small) if on_seat.has_area() else Rect2(corner, small))
 	var screen := Rect2(Vector2(EDGE, EDGE), size - Vector2(EDGE, EDGE) * 2.0)
 	for spot: Rect2 in spots:
 		var on_own_badge := spot.size == small
@@ -255,7 +262,7 @@ func _on_button(id: String) -> void:
 		close()
 		return
 	_target = id
-	_picker_title.text = "Throw at %s" % Game.player_name(id)
+	_picker_title.text = "Throw at %s" % Game.table_player_name(id)
 	_picker.reset_size()
 	var panel_size := _picker.get_combined_minimum_size()
 	_picker.size = panel_size
@@ -312,9 +319,9 @@ func _on_item_thrown(toss: Dictionary) -> void:
 	if target_badge == null or not _pictures.has(item) or _shown >= MAX_SHOWN or not is_visible_in_tree():
 		return
 	var from_badge := _badge(str(toss.get("from", "")))
-	var from := _to_local(from_badge.avatar_center()) if from_badge != null else Vector2(size.x / 2.0, size.y - 60.0)
-	var picture := target_badge.picture()
-	var to := _to_local(target_badge.avatar_center())
+	var from := _to_local(_center_of(from_badge)) if from_badge != null else Vector2(size.x / 2.0, size.y - 60.0)
+	var picture := _picture_of(target_badge)
+	var to := _to_local(_center_of(target_badge))
 	var radius := picture.size.x / 2.0
 
 	var show := Toss.new()
@@ -350,13 +357,22 @@ func _on_toss_done(to_id: String, picture: Control) -> void:
 			settle.tween_property(picture, "modulate", Color.WHITE, 0.15)
 
 
-func _badge(user_id: String) -> PlayerBadge:
+func _badge(user_id: String) -> Control:
 	if user_id.is_empty() or not badge_of.is_valid():
 		return null
-	var badge: PlayerBadge = badge_of.call(user_id)
-	if badge == null or not is_instance_valid(badge) or not badge.is_visible_in_tree():
+	var badge: Control = badge_of.call(user_id)
+	if badge == null or not is_instance_valid(badge) or not badge.is_visible_in_tree() or not badge.has_method("picture"):
 		return null
 	return badge
+
+
+# The middle of a seat's picture, and the picture itself, which reacts to what hits it
+func _center_of(badge: Control) -> Vector2:
+	return badge.call("avatar_center")
+
+
+func _picture_of(badge: Control) -> Control:
+	return badge.call("picture")
 
 
 func _to_local(global_point: Vector2) -> Vector2:

@@ -32,7 +32,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var name_a := "bt_" + tag
 	var message_box: AcceptDialog = Ui.get_node("MessageBox")
 	await _wait(0.5)

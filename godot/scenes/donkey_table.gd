@@ -26,6 +26,8 @@ const WOOD := Color("8d5a2b")
 const WOOD_DARK := Color("4e2f14")
 const FELT_LIGHT := Color("3d9c49")
 const FELT_EDGE := Color("15541f")
+## The pot sits this far from the right edge, left of the chat and emoji buttons.
+const POT_RIGHT := TableChat.MARGIN + TableChat.BUTTON_SIZE * 2.0 + 12.0 + 22.0
 
 var _views: Dictionary = {}  # card id -> CardView
 var _seats: Dictionary = {}  # player id -> DonkeySeat
@@ -51,6 +53,9 @@ var _pot_label: CoinLabel
 var _hint: Label
 var _play_button: Button
 var _leave_button: Button
+var _voice: TableVoice
+var _chat: TableChat
+var _lead_area: Control  # nothing drawn: where the felt shows the suit led
 var _result: DonkeyResult
 
 
@@ -99,6 +104,10 @@ func _init() -> void:
 	_felt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_felt.draw.connect(_draw_table)
 	add_child(_felt)
+	_lead_area = Control.new()
+	_lead_area.name = "DonkeyLeadArea"
+	_lead_area.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_lead_area)
 
 	_pile = CardView.new()
 	_pile.name = "DonkeyPile"
@@ -143,7 +152,7 @@ func _init() -> void:
 	var pot_corner := HBoxContainer.new()
 	pot_corner.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	pot_corner.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	pot_corner.offset_right = -24.0
+	pot_corner.offset_right = -POT_RIGHT
 	pot_corner.offset_top = 20.0
 	pot_corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(pot_corner)
@@ -167,6 +176,26 @@ func _init() -> void:
 	_play_button.add_theme_font_size_override("font_size", 22)
 	_play_button.pressed.connect(func() -> void: _play(_picked))
 	add_child(_play_button)
+
+	# Voice chat, as at the rummy table: Mic and Speaker beside our own picture, and the speaking
+	# ring and microphone on every seat. Added before the PLAY button would cover it, and before
+	# the result box, which must take every tap once it is up.
+	_voice = TableVoice.new()
+	_voice.badge_of = func(id: String) -> Object: return _seats.get(id)
+	add_child(_voice)
+	move_child(_voice, _play_button.get_index())
+
+	# Chat and emoji (two buttons at the top right, bubbles beside the seats), and things to
+	# throw at another player's picture (a button beside each opponent), as at the rummy table.
+	# Over the cards and PLAY, under the result box.
+	_chat = TableChat.new()
+	_chat.seat_of = _seat_rect
+	add_child(_chat)
+	var throws := TableThrows.new()
+	throws.badge_of = func(id: String) -> Object: return _seats.get(id)
+	throws.keep_clear = _keep_clear
+	throws.picker_opened.connect(_chat.close)
+	add_child(throws)
 
 	_result = DonkeyResult.new()
 	add_child(_result)
@@ -372,13 +401,41 @@ func _seat_players() -> void:
 			_seats.erase(id)
 
 
+# Where a player sits on screen, for the chat bubbles: their seat, or nothing.
+func _seat_rect(user_id: String) -> Rect2:
+	var seat: DonkeySeat = _seats.get(user_id)
+	if seat == null or not seat.is_visible_in_tree():
+		return Rect2()
+	return seat.get_global_rect()
+
+
+# What the buttons for throwing things must never cover: what a player taps or reads during
+# a turn, the cards on the table and in the hand among them.
+func _keep_clear() -> Array:
+	var controls: Array = [
+		_leave_button, _info_label, _pot_label.get_parent(), _hint, _play_button, _pile, _pile_label,
+		_voice, _lead_area,
+		_chat.get_node_or_null("ChatButtons"), _chat.get_node_or_null("ChatPanel"), _chat.get_node_or_null("EmojiPanel"),
+	]
+	controls.append_array(_card_layer.get_children())
+	return controls
+
+
 # Every card to where the state says it is: the hand along the bottom, the trick in the
 # middle; the ones in neither are leaving the table (to whoever picked up the trick, or out of
 # the game). `animate` false puts them in place at once (the window changed size).
 func _layout(animate: bool) -> void:
 	if size.x <= 0.0:
 		return
+	# The voice switches right of our own seat, level with its picture: clear of the seat to
+	# the left above it, and of the cards and the PLAY button rising from the hand below
+	var mine := _seat_spot(0, 1)
+	_voice.position = Vector2(mine.x + DonkeySeat.SIZE.x / 2.0 + 6.0, mine.y - TableVoice.BUTTON_SIZE)
 	var state := Game.donkey.state
+	# Where the felt shows the suit led (see _draw_table), for the throw buttons to keep clear of
+	_lead_area.position = _table_center() + Vector2(-_table_radii().x + 92.0, 0.0) - Vector2(40.0, 34.0)
+	_lead_area.size = Vector2(80.0, 96.0)
+	_lead_area.visible = not str(state.get("leadSuit", "")).is_empty() and Game.donkey.status() == "playing"
 	var hand: Array = Game.donkey.hand().filter(func(card: Dictionary) -> bool: return str(card.get("id")) != _sent)
 	var trick: Array = state.get("trick", []).duplicate()
 	if not _sent.is_empty():

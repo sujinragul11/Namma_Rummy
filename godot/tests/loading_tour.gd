@@ -92,7 +92,7 @@ func _run() -> void:
 	await _shot("4-login-form")
 
 	# ---------- a fresh login: the menu waits for the game connection ----------
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var username := "lt_" + tag
 	var r: Dictionary = await Game.register(username, "93%08d" % (randi() % 100000000), PASSWORD)
 	_check("registered", r.ok, str(r.get("error", "")))

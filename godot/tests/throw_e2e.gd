@@ -47,7 +47,7 @@ func _run() -> void:
 		return
 
 	# ---------- three players at one table, a fourth at none ----------
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var number := randi() % 10000000
 	var a := _new_client()
 	var b := _new_client()

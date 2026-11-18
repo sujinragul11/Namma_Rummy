@@ -21,7 +21,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	var tag := "%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var tag := "%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var name_a := "ga_" + tag
 	var name_b := "gb_" + tag
 	var a := _new_client()

@@ -65,6 +65,9 @@ func _run() -> void:
 	await _wait(0.8)
 	_check("back on the rummy tiles", _node("CloseJokerTile").is_visible_in_tree() and not _node("DonkeyHome").is_visible_in_tree())
 	await _tables()
+	print("donkey_preview: %d pictures in %s, %d failed checks" % [_step, _shots, _failures])
+	Sound.hush()
+	get_tree().quit(1 if _failures > 0 else 0)
 
 
 # Made-up table states, fed to Game.donkey as the server would send them.
@@ -183,9 +186,6 @@ func _tap(at: Vector2) -> void:
 func _count_cards() -> int:
 	var layer: Node = _node("DonkeyCardLayer")
 	return 0 if layer == null else layer.get_children().filter(func(view: Node) -> bool: return not view.is_queued_for_deletion()).size()
-	print("donkey_preview: %d pictures in %s, %d failed checks" % [_step, _shots, _failures])
-	Sound.hush()
-	get_tree().quit(1 if _failures > 0 else 0)
 
 
 func _top_bar_report() -> void:

@@ -19,6 +19,9 @@
 // --donkey-deal=<file>  while this file exists, Donkey Master deals the pack unshuffled
 //              (♠ 2 to A, then ♥, ♣, ♦, one card to each seat in turn), so a test knows the
 //              hands: with two players seat 0 gets 2♠ 4♠ ... A♠ ... and leads the A♠
+// --bot-seconds=2  computer players fill a Play Now / Play Online table after this many
+//              seconds of waiting. Without it they never do here, whatever the live default
+//              (10 s), so the tests of searching see only their own players.
 // The tests are given the same flags and create and remove the files themselves.
 // Stop the server with Ctrl+C. It refuses the real port and any database not named ..._test.
 
@@ -65,6 +68,7 @@ for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_VERIFY_SE
 }
 if (option('sms-code', '')) process.env.SMS_TEST_CODE = option('sms-code', '');
 if (option('sms-resend', '')) process.env.SMS_RESEND_SECONDS = option('sms-resend', '');
+process.env.MATCH_BOT_SECONDS = option('bot-seconds', 'off');
 
 // The name of the deal asked for, or '' for a normal shuffle.
 function riggedDeal() {

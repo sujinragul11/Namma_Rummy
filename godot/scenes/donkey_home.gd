@@ -41,7 +41,7 @@ Every turn has 15 seconds; when time runs out, a card is played for you.
 
 Coins are play tokens with no cash value, the same coins as in Namma Rummy. Every player pays the table's entry on sitting down. At the end the Donkey (and anyone who left while still holding cards) loses the entry, and all of it goes to the Master; everyone else gets their own entry back.
 
-Play Online finds players for you, the ones in your region first. To play with your friends, create a room under Play with Friends and give them its room code."""
+Play Online finds players for you, the ones in your region first. When not enough players are online, computer players fill the empty seats after a few seconds. To play with your friends, create a room under Play with Friends and give them its room code."""
 
 ## True while the menu shows Donkey Master rather than rummy. It outlives the home screen, so
 ## coming back from a game opens the menu of the game that was played.

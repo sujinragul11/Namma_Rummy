@@ -4,6 +4,8 @@ const Coins = require('../models/Coins');
 const Friend = require('../models/Friend');
 const Matchmaker = require('./Matchmaker');
 const { WatchedMap } = require('./FriendsManager');
+const BotAccounts = require('../bots/BotAccounts');
+const DonkeyBots = require('../bots/DonkeyBots');
 
 // Donkey Master over the game connection: private tables with a room code, "Play Online"
 // matchmaking, the turn clocks, keeping tables in the database across a restart, and the
@@ -46,8 +48,10 @@ class DonkeyManager {
     this.snapshotWrites = new Map();
     this.lastInvite = new Map();
     this.snapshots = false; // true once the database has the tables
+    // Computer players who fill the empty seats of a Play Online table nobody else came to
+    this.bots = new DonkeyBots(this, BotAccounts);
     this.matchmaker = new Matchmaker({
-      onMatch: (tickets) => this.startMatched(tickets),
+      onMatch: (tickets, bots) => this.startMatched(tickets, bots),
       notify: (userId, event, payload) => this.toUser(userId, `donkey${event[0].toUpperCase()}${event.slice(1)}`, payload)
     });
     // After rummy's own preparation (the coins column it adds to users)
@@ -78,7 +82,8 @@ class DonkeyManager {
           }
           engine.restartClock();
           for (const player of engine.players.values()) {
-            player.connected = false; // nobody is connected to a table just brought back
+            // no person is connected to a table just brought back; computer players are
+            player.connected = this.bots.isBot(player.id);
             if (!player.left) this.userRooms.set(player.id, engine.roomId);
           }
           this.rooms.set(engine.roomId, engine);
@@ -220,9 +225,10 @@ class DonkeyManager {
     return { searching: true, region: Matchmaker.regionLabel(offset) };
   }
 
-  // The matchmaker found players: open a table, take everyone's entry, deal. Resolves to the
-  // players who should search on because the table could not start.
-  async startMatched(tickets) {
+  // The matchmaker found players: open a table, take everyone's entry, deal. With `bots`,
+  // computer players take the seats nobody came for. Resolves to the players who should
+  // search on because the table could not start.
+  async startMatched(tickets, bots = false) {
     const [first] = tickets;
     const engine = await this.openTable({ maxPlayers: first.maxPlayers, stake: first.stake }, first.userId, false);
     const seated = [];
@@ -240,7 +246,15 @@ class DonkeyManager {
       this.userRooms.set(ticket.userId, engine.roomId);
       seated.push(ticket);
     }
-    if (seated.length < 2) {
+    let computers = 0;
+    if (bots && seated.length > 0) {
+      try {
+        computers = await this.seatBots(engine);
+      } catch (error) {
+        console.error('Failed to seat computer players:', error.message);
+      }
+    }
+    if (seated.length === 0 || seated.length + computers < 2) {
       this.closeRoom(engine, 'abandoned'); // gives back the entries taken
       return seated;
     }
@@ -250,6 +264,24 @@ class DonkeyManager {
     }
     await this.afterMove(engine);
     return [];
+  }
+
+  // Computer players for every seat still free; each pays the entry like anyone. Returns how
+  // many sat down.
+  async seatBots(engine) {
+    const free = engine.maxPlayers - engine.players.size;
+    if (free <= 0) return 0;
+    const isBusy = (id) => this.userRooms.has(id) || this.rummy.userGames.has(id);
+    const chosen = await BotAccounts.pickFree(free, isBusy, engine.stake);
+    let seated = 0;
+    for (const bot of chosen) {
+      if (engine.status !== 'waiting' || isBusy(bot.id)) continue;
+      await this.payEntry(engine, bot.id);
+      engine.addPlayer(bot.id, bot.username);
+      this.userRooms.set(bot.id, engine.roomId);
+      seated += 1;
+    }
+    return seated;
   }
 
   async start(userId) {
@@ -341,8 +373,12 @@ class DonkeyManager {
   schedule(engine) {
     clearTimeout(this.timers.get(engine.roomId));
     this.timers.delete(engine.roomId);
+    this.bots.schedule(engine); // a computer player whose turn it is plays
     const next = engine.nextDeadline();
-    if (!next || !this.anyoneConnected(engine)) return; // nobody there: the clock waits
+    if (!next) return;
+    // Nobody there: the clock waits. Unless every person has got up for good: then the
+    // computer players play the game out.
+    if (!this.anyoneConnected(engine) && this.bots.people(engine).length > 0) return;
     const timer = setTimeout(() => this.onTimer(engine), Math.max(0, next.at - Date.now()));
     this.timers.set(engine.roomId, timer);
   }
@@ -399,8 +435,9 @@ class DonkeyManager {
     if (!this.anyoneConnected(engine)) this.cleanupLater(engine.roomId);
   }
 
+  // A person connected to the table (computer players are always there; they do not count)
   anyoneConnected(engine) {
-    return [...engine.players.values()].some((player) => player.connected && !player.left);
+    return [...engine.players.values()].some((player) => player.connected && !player.left && !this.bots.isBot(player.id));
   }
 
   isOnline(userId) {
@@ -613,6 +650,7 @@ class DonkeyManager {
     const { roomId } = engine;
     clearTimeout(this.timers.get(roomId));
     this.timers.delete(roomId);
+    this.bots.forget(roomId);
     this.cancelCleanup(roomId);
     this.rooms.delete(roomId);
     this.finished.delete(roomId);

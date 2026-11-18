@@ -22,7 +22,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	var username := "sr_%d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
+	var username := "sr_%06d%04d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 10000]
 	var message_box: AcceptDialog = Ui.get_node("MessageBox")
 	var password_box: ConfirmationDialog = Ui.get_node("PasswordBox")
 	var password_edit: LineEdit = password_box.find_child("PasswordBoxEdit", true, false)

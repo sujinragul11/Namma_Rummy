@@ -43,7 +43,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	var tag := "%d%03d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 1000]
+	var tag := "%06d%03d" % [int(Time.get_unix_time_from_system()) % 1000000, randi() % 1000]
 	var question_box: ConfirmationDialog = Ui.get_node("QuestionBox")
 	await _until(func() -> bool: return not _main.loading(), 20.0)
 

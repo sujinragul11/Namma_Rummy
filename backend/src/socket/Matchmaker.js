@@ -6,7 +6,9 @@
 //   then   NEARBY       up to three hours either way
 //   then   everywhere
 // A table that cannot fill all its seats starts a short while after its second player is
-// found, with whoever is there by then.
+// found, with whoever is there by then. Sooner than that, once the player who has waited
+// longest has waited BOT_MS, computer players take the empty seats and the table starts at
+// once (bots/BotAccounts.js); MATCH_BOT_SECONDS=off leaves them out (the tests do).
 //
 // This class only keeps the queue and decides who sits together. Seating them (the table,
 // the entries, the game) is done by the `onMatch` callback the SocketManager passes in.
@@ -19,6 +21,8 @@ const seconds = (name, fallback) => {
 const REGION_ONLY_MS = seconds('MATCH_REGION_SECONDS', 8);
 const NEARBY_MS = seconds('MATCH_NEARBY_SECONDS', 16);
 const FILL_MS = seconds('MATCH_FILL_SECONDS', 15);
+const BOT_MS = process.env.MATCH_BOT_SECONDS === 'off' ? Infinity : seconds('MATCH_BOT_SECONDS', 10);
+const BOT_RETRY_MS = 5000;
 const NEARBY_MINUTES = 180;
 const TICK_MS = 1000;
 const DAY_MINUTES = 1440;
@@ -49,8 +53,9 @@ const scopeOf = (waited) => {
 };
 
 class Matchmaker {
-  // onMatch(tickets) seats the players and resolves to the tickets that could not be seated
-  // and should go on searching. notify(userId, event, payload) sends a player an event.
+  // onMatch(tickets, bots) seats the players, and when `bots` is true fills the other seats
+  // with computer players; it resolves to the tickets that could not be seated and should go
+  // on searching. notify(userId, event, payload) sends a player an event.
   constructor({ onMatch, notify }) {
     this.onMatch = onMatch;
     this.notify = notify;
@@ -87,6 +92,7 @@ class Matchmaker {
       offset: options.offset,
       since: keepPlace ? previous.since : Date.now(),
       groupSince: null, // when this player, leading a group, first had company
+      botsRetryAt: 0, // after a failed try with computer players, not again before this
       cancelled: false
     });
     this.run();
@@ -149,12 +155,19 @@ class Matchmaker {
 
         const full = group.length >= leader.maxPlayers;
         const due = leader.groupSince !== null && now - leader.groupSince >= FILL_MS;
-        if (full || due) {
-          this.seat(group);
+        const bots = !full && now - leader.since >= BOT_MS && now >= leader.botsRetryAt;
+        if (full || due || bots) {
+          this.seat(group, bots);
           continue;
         }
 
-        const startsIn = leader.groupSince === null ? null : Math.max(0, leader.groupSince + FILL_MS - now);
+        // The table starts when its seats are full, or at the first of: the wait for a
+        // part-filled table, the computer players taking the empty seats
+        const startsAt = Math.min(
+          leader.groupSince === null ? Infinity : leader.groupSince + FILL_MS,
+          leader.since + BOT_MS
+        );
+        const startsIn = startsAt === Infinity ? null : Math.max(0, startsAt - now);
         for (const ticket of group) {
           this.sendStatus(ticket, now, { found: group.length, startsIn, inQueue: queue.length });
         }
@@ -166,7 +179,7 @@ class Matchmaker {
 
   // Takes the group out of the queue and hands it over to be seated. Whoever could not be
   // seated (no coins any more, say) is told by onMatch; the others go back to searching.
-  seat(group) {
+  seat(group, bots = false) {
     for (const ticket of group) {
       this.tickets.delete(ticket.userId);
       this.lastSent.delete(ticket.userId);
@@ -174,7 +187,7 @@ class Matchmaker {
     }
 
     Promise.resolve()
-      .then(() => this.onMatch(group))
+      .then(() => this.onMatch(group, bots))
       .catch((error) => {
         console.error('Failed to seat a match:', error.message);
         return group; // all of them search on
@@ -186,6 +199,7 @@ class Matchmaker {
         for (const ticket of unseated || []) {
           if (ticket.cancelled || this.tickets.has(ticket.userId)) continue;
           ticket.groupSince = null;
+          if (bots) ticket.botsRetryAt = Date.now() + BOT_RETRY_MS;
           this.tickets.set(ticket.userId, ticket);
         }
         // in arrival order again, which run() relies on for leading groups fairly
@@ -248,5 +262,6 @@ Matchmaker.scopeOf = scopeOf;
 Matchmaker.REGION_ONLY_MS = REGION_ONLY_MS;
 Matchmaker.NEARBY_MS = NEARBY_MS;
 Matchmaker.FILL_MS = FILL_MS;
+Matchmaker.BOT_MS = BOT_MS;
 
 module.exports = Matchmaker;

@@ -65,7 +65,7 @@ Points: J, Q, K and A count 10, number cards their value, jokers 0. The winner s
 
 Close Joker goes round after round like Pool Rummy: reach 240 and you are out; the last player left wins. The joker is cut face down. You see it, and which cards are wild, only once your own cards hold a pure sequence; a green dot on a player's picture shows who has seen it. Pool Rummy is the same without the hidden joker: reach 101 (or 201) and you are out. Deals Rummy is 2 or 3 deals played for chips: the winner of a deal takes each loser's points in chips, and the most chips after the last deal win.
 
-Play Now finds players for you, the ones in your region first: no room code needed. To play with your friends, open a private table under Play with Friends and give them its room code.
+Play Now finds players for you, the ones in your region first: no room code needed. When not enough players are online, computer players fill the empty seats after a few seconds. To play with your friends, open a private table under Play with Friends and give them its room code.
 
 When someone declares, everyone else gets 15 seconds to arrange their cards before they are counted. Every turn has 30 seconds.
 
